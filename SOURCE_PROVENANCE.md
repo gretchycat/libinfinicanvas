@@ -30,3 +30,17 @@ InfiniFolder `ccedb29` (full pre-move file SHA-256
 `ImageMetadata.kt` retains the same Android ExifInterface tags and float GPS values
 behind a registered common-source processor. Host labels and formatting remain
 outside Canvas. No backend, codec dependency or licensing change accompanies it.
+
+
+Rotation/flip, filtered resizing and PNG encoding were extracted from
+`viewer-image/src/main/java/com/infinifolder/viewer/ImageViewerActivity.kt` at
+InfiniFolder `8a0c673` (SHA-256
+`6aab6d7168839b1f3ff0171833d319e7ffec203cf2bd11eebee11cd989a1a921`).
+Crop pixel clamping and allocation were extracted from
+`viewer-common/src/main/java/com/infinifolder/viewer/ZoomImageView.kt` at the same
+revision (SHA-256
+`da715bad4e57e94efc3310f94f610d31e81decbbf8736543edc32d6a35bc9c3f`).
+`ImageTransforms.kt` and `ImageEncoding.kt` retain those Android operations behind
+Stream processors. Display-matrix coordinate mapping, preview filters, controls
+and save/provider policy remain host-owned. Typed requests, encoded-source
+ownership and transfer/cancellation wrappers are new; no backend is rewritten.

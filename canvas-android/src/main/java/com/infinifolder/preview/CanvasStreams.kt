@@ -3,6 +3,7 @@ package com.infinifolder.preview
 import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.net.Uri
+import java.io.IOException
 import io.github.gretchycat.infinistream.*
 
 /** Bitmap remains a platform frame; metadata does not force a GPU/CPU byte roundtrip. */
@@ -16,7 +17,22 @@ class BitmapFrame @JvmOverloads constructor(val bitmap: Bitmap, private val owns
             if (android.os.Build.VERSION.SDK_INT >= 26) bitmap.colorSpace?.name?.let { put("colorSpace", it) }
         }, provenance = provenance, warnings = warnings.toList())
     private var closed = false
-    override fun close() { if (!closed) { closed = true; if (ownsBitmap) bitmap.recycle() } }
+    private var recycleOnClose = ownsBitmap
+
+    /** Transfer the bitmap to a host (e.g. an ImageView); close then leaves its pixels intact.
+     * A borrowed/no-op frame can alias the input, whose lifetime remains the caller's responsibility. */
+    @Throws(IOException::class)
+    fun takeBitmap(): Bitmap {
+        val result = requireBitmap()
+        recycleOnClose = false
+        closed = true
+        return result
+    }
+    internal fun requireBitmap(): Bitmap {
+        if (closed || bitmap.isRecycled) throw IOException("Bitmap frame is closed or recycled")
+        return bitmap
+    }
+    override fun close() { if (!closed) { closed = true; if (recycleOnClose) bitmap.recycle() } }
 }
 
 object CanvasStreams {

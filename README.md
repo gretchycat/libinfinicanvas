@@ -44,8 +44,50 @@ Stream's registry/pipeline. Backend-specific parser limits and format support
 remain Android's; no portable EXIF implementation or metadata writer is claimed.
 The public value/source interfaces expose no Android presentation types.
 
-The standalone Canvas suite contains 26 JVM cases. The host adds five inspector
+The EXIF checkpoint added 16 cases to the preceding ten Canvas JVM cases. The host adds five inspector
 formatting cases; a packaged-APK runtime helper compares the extracted path to
 the previous Android calls using synthetic little-/big-endian EXIF JPEGs, ordinary
 untagged images, short/unknown-length/archive sources and error/cancellation cases.
 Handset UI, live provider behavior and image editing acceptance remain separate.
+
+
+## Image transformations and PNG encoding
+
+`ImageTransforms.apply(BitmapFrame, ImageTransform, cancellation)` executes the
+registered `canvas.android.transform` pull processor for orientation, source-
+pixel crop or filtered resize. The Android Matrix/Bitmap operations and crop
+truncation/clamping retain the original viewer's algorithms. UI display-coordinate
+mapping and edit policy remain in the host. Typed requests are translated into
+validated processor options; an edit uses an explicit registry step so a frame-
+to-frame target cannot accidentally negotiate an unchanged zero-step route.
+
+The processor borrows input, including input frames whose owner will recycle them.
+New Bitmap objects are owned by the output frame; identical-object results are
+borrowed aliases. This handles Android's immutable/mutable no-op behavior without
+extra pixel copies. Close recycles only owned results. `BitmapFrame.takeBitmap()`
+transfers pixels without copying and invalidates the frame; the caller retains
+any aliased input's lifetime. Each result publishes actual dimensions/config/
+color space and provenance/warnings. Cancelled new allocations are recycled.
+
+`ImageEncoding.png(BitmapFrame, cancellation)` runs `canvas.android.encode.png`.
+It retains the original PNG compression settings and returns `EncodedImage`, an
+owned sequential/positional ByteSource with exact PNG byte length, MIME/format,
+width/height and source provenance/warnings. It clears raw bitmap attributes,
+input filename and verification. The `takeBytes()` ownership transfer supports
+the existing host's byte-array publication without an extra copy. Both processors
+work through Stream's registry; ordinary PNG pull composition is supported.
+They do not open storage or choose destination URIs.
+
+PNG output is fully materialized, matching the existing save boundary; streamed
+publication is future work. Cancellation is cooperative before/after native pixel
+operations and during PNG writes. Original stream exceptions are retained even
+when native compression catches them or clears an interruption flag. The host
+retains sampled editing, original-file protection, PNG-copy export, preview
+controls and current edit/save semantics. The view's legacy crop method delegates
+to Canvas while preserving its public signature.
+
+Canvas now has 52 JVM cases (26 new geometry/options/encoded-source checks).
+The app's device helper adds twelve pixel/ownership/encoding groups against the
+actual APK, including independent synthetic reference images, alpha, actual
+metadata, no-op aliases, transfers, cancellation and a PNG pull pipeline.
+Android presentation and live provider acceptance remain separate.
