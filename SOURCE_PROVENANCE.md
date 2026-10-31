@@ -21,3 +21,12 @@ Original implementations and history: [gretchycat/infinifolder at 9233495](https
 | `viewer-common/src/test/java/com/infinifolder/preview/ImageDecodersFixtureTest.kt` | `libraries/libinfinicanvas/canvas-android/src/test/java/com/infinifolder/preview/ImageDecodersFixtureTest.kt` | `bc0556ccf79ec2461b1795c5cf8e3869af3150c1f9dd8212c40d37f593895da7` |
 
 The viewer's final BitmapFactory bounds/pixel fallback and calculateInSampleSize rule were subsequently moved from ImageViewerActivity into ThumbnailDecoder.decodeViewerFrame and ImageDecodeUtils.sampleSize, preserving the original valid-input algorithm and stream ownership. ImageViewerActivity now delegates every decoding branch to Canvas; editing/display lifecycle remains in the viewer.
+
+
+The EXIF inspector parsing calls were extracted from
+`viewer-image/src/main/java/com/infinifolder/viewer/ImageViewerActivity.kt` at
+InfiniFolder `ccedb29` (full pre-move file SHA-256
+`6b5707bac7a3c085adf825c8604051be8310103ae9d03e3dbea1b9a60b8cde7f`).
+`ImageMetadata.kt` retains the same Android ExifInterface tags and float GPS values
+behind a registered common-source processor. Host labels and formatting remain
+outside Canvas. No backend, codec dependency or licensing change accompanies it.
