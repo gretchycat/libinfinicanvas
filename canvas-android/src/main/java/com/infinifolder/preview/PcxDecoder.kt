@@ -65,7 +65,8 @@ object PcxDecoder {
 
         val nPlanes = u8(bytes, startOffset + 65)
         val bytesPerLine = u16le(bytes, startOffset + 66)
-        if (nPlanes !in 1..4 || bytesPerLine <= 0) return null
+        if (nPlanes !in 1..4 || bytesPerLine < (width * bitsPerPlane + 7) / 8) return null
+        if (bitsPerPlane in setOf(2, 4) && nPlanes != 1 || bitsPerPlane == 8 && nPlanes == 2) return null
 
         // Build 16-color header palette
         val palette = IntArray(256)
@@ -97,18 +98,19 @@ object PcxDecoder {
 
         fun nextByte(): Byte {
             if (encoding == 0) {
-                return if (pos < rleLimit) bytes[pos++] else 0
+                require(pos < rleLimit) { "Incomplete PCX pixels" }
+                return bytes[pos++]
             }
             if (runCount > 0) {
                 runCount--
                 return runVal
             }
-            if (pos >= rleLimit) return 0
+            require(pos < rleLimit) { "Incomplete PCX run" }
             val b = u8(bytes, pos++)
             return if ((b and 0xC0) == 0xC0) {
                 runCount = (b and 0x3F) - 1
-                runVal = if (pos < rleLimit) bytes[pos++] else 0
-                if (runCount < 0) runCount = 0
+                require(runCount >= 0 && pos < rleLimit) { "Invalid PCX run" }
+                runVal = bytes[pos++]
                 runVal
             } else {
                 b.toByte()

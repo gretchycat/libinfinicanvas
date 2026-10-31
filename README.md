@@ -91,3 +91,23 @@ The app's device helper adds twelve pixel/ownership/encoding groups against the
 actual APK, including independent synthetic reference images, alpha, actual
 metadata, no-op aliases, transfers, cancellation and a PNG pull pipeline.
 Android presentation and live provider acceptance remain separate.
+
+## Decoder completion and ANSI glyphs
+
+Custom raster decoders reject unimplemented compression and missing mandatory
+pixel data instead of publishing zero-filled successful frames. This includes
+EXR RLE, unknown TIFF/XCF compression, incomplete scanlines/tiles/channels and
+strict PackBits output. A genuinely blank valid image is allowed; rejection is
+based on structure and decoding, not pixel color. Known working subsets and real
+embedded previews remain; this does not add full PostScript/layer interpretation.
+
+ANSI cells use a real CP437 bitmap table (8x8 glyphs doubled vertically), retaining
+8x16 geometry and color/block handling. Public domain font8x8 sources, pinned
+provenance and a reproducible generator are included in `third_party/font8x8`
+and `scripts/generate-cp437-font.py`; attribution is packaged as a license asset.
+The independent decoder tests cover malformed raster data and reference glyphs.
+
+This correction adds 15 independent cases (67 total, all passing). The consuming
+APK rejects all 14 malformed/unsupported image probes and matches the real `A`
+glyph while all 12 original image controls still decode. Its existing 35 native
+viewport/edit/metadata/PDF groups also pass; handset UI acceptance remains separate.

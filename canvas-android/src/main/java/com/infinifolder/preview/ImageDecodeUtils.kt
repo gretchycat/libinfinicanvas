@@ -85,6 +85,7 @@ internal object ImageDecodeUtils {
      * Returns pair of (uncompressed bytes, next source offset).
      */
     fun decodePackBits(src: ByteArray, startOffset: Int, expectedLen: Int, maxSrcOffset: Int = src.size): Pair<ByteArray, Int> {
+        require(expectedLen >= 0 && startOffset >= 0 && maxSrcOffset in startOffset..src.size)
         val out = ByteArray(expectedLen)
         var dst = 0
         var pos = startOffset
@@ -93,14 +94,15 @@ internal object ImageDecodeUtils {
             val n = src[pos++].toInt() // signed byte -128..127
             when {
                 n >= 0 -> {
-                    val count = (n + 1).coerceAtMost(expectedLen - dst).coerceAtMost(limit - pos)
+                    val count = n + 1
+                    require(count <= expectedLen - dst && count <= limit - pos) { "Incomplete PackBits literal" }
                     System.arraycopy(src, pos, out, dst, count)
                     pos += count
                     dst += count
                 }
                 n != -128 -> {
-                    val count = (1 - n).coerceAtMost(expectedLen - dst)
-                    if (pos >= limit) break
+                    val count = 1 - n
+                    require(count <= expectedLen - dst && pos < limit) { "Incomplete PackBits run" }
                     val b = src[pos++]
                     for (i in 0 until count) {
                         out[dst++] = b
@@ -108,6 +110,7 @@ internal object ImageDecodeUtils {
                 }
             }
         }
+        require(dst == expectedLen) { "Incomplete PackBits output" }
         return out to pos
     }
 }

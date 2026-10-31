@@ -51,6 +51,7 @@ object SimpleLosslessImageDecoder {
         var run = 0
         var pos = 14
         val chunksEnd = bytes.size - 8
+        if (!bytes.copyOfRange(chunksEnd, bytes.size).contentEquals(byteArrayOf(0, 0, 0, 0, 0, 0, 0, 1))) return null
 
         for (pxPos in 0 until totalPixels) {
             if (run > 0) {
@@ -59,14 +60,14 @@ object SimpleLosslessImageDecoder {
                 val b1 = u8(bytes, pos++)
                 when {
                     b1 == 0xFE -> { // QOI_OP_RGB
-                        if (pos + 3 > bytes.size) break
+                        if (pos + 3 > chunksEnd) return null
                         r = u8(bytes, pos)
                         g = u8(bytes, pos + 1)
                         b = u8(bytes, pos + 2)
                         pos += 3
                     }
                     b1 == 0xFF -> { // QOI_OP_RGBA
-                        if (pos + 4 > bytes.size) break
+                        if (pos + 4 > chunksEnd) return null
                         r = u8(bytes, pos)
                         g = u8(bytes, pos + 1)
                         b = u8(bytes, pos + 2)
@@ -86,7 +87,7 @@ object SimpleLosslessImageDecoder {
                         b = (b + (b1 and 0x03) - 2) and 0xFF
                     }
                     (b1 and 0xC0) == 0x80 -> { // QOI_OP_LUMA
-                        if (pos >= bytes.size) break
+                        if (pos >= chunksEnd) return null
                         val b2 = u8(bytes, pos++)
                         val vg = (b1 and 0x3F) - 32
                         r = (r + vg - 8 + ((b2 ushr 4) and 0x0F)) and 0xFF
@@ -95,14 +96,16 @@ object SimpleLosslessImageDecoder {
                     }
                     (b1 and 0xC0) == 0xC0 -> { // QOI_OP_RUN
                         run = b1 and 0x3F
+                        if (run >= totalPixels - pxPos) return null
                     }
                 }
                 val hash = (r * 3 + g * 5 + b * 7 + a * 11) and 0x3F
                 index[hash] = packArgb(a, r, g, b)
-            }
+            } else return null
             pixels[pxPos] = packArgb(a, r, g, b)
         }
 
+        if (pos != chunksEnd || run != 0) return null
         return createScaledBitmap(pixels, width, height, targetPx)
     }
 

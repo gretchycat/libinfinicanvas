@@ -94,7 +94,7 @@ object NetpbmDecoder {
             1 -> { // ASCII PBM (1 = black, 0 = white)
                 var idx = 0
                 while (idx < totalPixels && scanner.pos < bytes.size) {
-                    val tok = scanner.nextToken() ?: break
+                    val tok = scanner.nextToken() ?: return null
                     for (ch in tok) {
                         if (idx >= totalPixels) break
                         if (ch == '0' || ch == '1') {
@@ -103,19 +103,20 @@ object NetpbmDecoder {
                         }
                     }
                 }
+                if (idx != totalPixels) return null
             }
             2 -> { // ASCII PGM
                 for (i in 0 until totalPixels) {
-                    val raw = scanner.nextInt() ?: break
+                    val raw = scanner.nextInt() ?: return null
                     val v = (raw * 255 / maxVal).coerceIn(0, 255)
                     pixels[i] = packArgb(255, v, v, v)
                 }
             }
             3 -> { // ASCII PPM
                 for (i in 0 until totalPixels) {
-                    val r = ((scanner.nextInt() ?: break) * 255 / maxVal).coerceIn(0, 255)
-                    val g = ((scanner.nextInt() ?: break) * 255 / maxVal).coerceIn(0, 255)
-                    val b = ((scanner.nextInt() ?: break) * 255 / maxVal).coerceIn(0, 255)
+                    val r = ((scanner.nextInt() ?: return null) * 255 / maxVal).coerceIn(0, 255)
+                    val g = ((scanner.nextInt() ?: return null) * 255 / maxVal).coerceIn(0, 255)
+                    val b = ((scanner.nextInt() ?: return null) * 255 / maxVal).coerceIn(0, 255)
                     pixels[i] = packArgb(255, r, g, b)
                 }
             }
@@ -124,7 +125,7 @@ object NetpbmDecoder {
                 for (y in 0 until height) {
                     for (x in 0 until width) {
                         val byteIdx = pos + (x ushr 3)
-                        if (byteIdx >= bytes.size) break
+                        if (byteIdx >= bytes.size) return null
                         val bit = (u8(bytes, byteIdx) ushr (7 - (x and 7))) and 1
                         val v = if (bit == 1) 0 else 255
                         pixels[y * width + x] = packArgb(255, v, v, v)
@@ -136,10 +137,10 @@ object NetpbmDecoder {
                 val twoByte = maxVal > 255
                 for (i in 0 until totalPixels) {
                     val raw = if (twoByte) {
-                        if (pos + 2 > bytes.size) break
+                        if (pos + 2 > bytes.size) return null
                         val v = u16be(bytes, pos); pos += 2; v
                     } else {
-                        if (pos >= bytes.size) break
+                        if (pos >= bytes.size) return null
                         u8(bytes, pos++)
                     }
                     val v = (raw * 255 / maxVal).coerceIn(0, 255)
@@ -150,14 +151,14 @@ object NetpbmDecoder {
                 val twoByte = maxVal > 255
                 for (i in 0 until totalPixels) {
                     if (twoByte) {
-                        if (pos + 6 > bytes.size) break
+                        if (pos + 6 > bytes.size) return null
                         val r = (u16be(bytes, pos) * 255 / maxVal).coerceIn(0, 255)
                         val g = (u16be(bytes, pos + 2) * 255 / maxVal).coerceIn(0, 255)
                         val b = (u16be(bytes, pos + 4) * 255 / maxVal).coerceIn(0, 255)
                         pos += 6
                         pixels[i] = packArgb(255, r, g, b)
                     } else {
-                        if (pos + 3 > bytes.size) break
+                        if (pos + 3 > bytes.size) return null
                         val r = (u8(bytes, pos) * 255 / maxVal).coerceIn(0, 255)
                         val g = (u8(bytes, pos + 1) * 255 / maxVal).coerceIn(0, 255)
                         val b = (u8(bytes, pos + 2) * 255 / maxVal).coerceIn(0, 255)
@@ -200,6 +201,7 @@ object NetpbmDecoder {
         val totalPixels = width * height
         val pixels = IntArray(totalPixels)
         val twoByte = maxVal > 255
+        if (totalPixels.toLong() * depth * (if (twoByte) 2 else 1) > bytes.size - pos) return null
 
         fun nextSample(): Int {
             return if (twoByte) {
@@ -255,6 +257,7 @@ object NetpbmDecoder {
         val totalPixels = width * height
         val pixels = IntArray(totalPixels)
         var pos = scanner.pos
+        if (totalPixels.toLong() * channels * 4 > bytes.size - pos) return null
 
         fun readFloat(): Float {
             if (pos + 4 > bytes.size) return 0f

@@ -111,7 +111,9 @@ object LayeredImageDecoder {
         val depth = u16be(bytes, 22)
         val colorMode = u16be(bytes, 24) // 0=Bitmap, 1=Grayscale, 2=Indexed, 3=RGB, 4=CMYK
         if (!isValidDimensions(width, height) || channels !in 1..56) return null
-        if (depth !in setOf(1, 8, 16)) return null
+        if (depth !in setOf(1, 8, 16) || colorMode !in 0..4) return null
+        if (colorMode in setOf(3, 4) && channels < if (colorMode == 4) 4 else 3) return null
+        if (depth == 1 && colorMode != 0 || colorMode == 0 && depth != 1) return null
 
         var pos = 26
         if (pos + 4 > bytes.size) return null
@@ -147,6 +149,7 @@ object LayeredImageDecoder {
 
         when (compression) {
             0 -> { // Uncompressed planar channels
+                if (rowBytes.toLong() * height * channels > bytes.size - pos) return null
                 for (c in 0 until activeChannels) {
                     val dst = channelData[c]
                     val toCopy = dst.size.coerceAtMost((bytes.size - pos).coerceAtLeast(0))
@@ -167,6 +170,7 @@ object LayeredImageDecoder {
                         val rowIdx = c * height + y
                         val countOff = pos + rowIdx * countEntrySize
                         val byteCount = if (version == 2) u32be(bytes, countOff).toInt() else u16be(bytes, countOff)
+                        if (byteCount < 0 || byteCount > bytes.size - rlePos) return null
                         if (c < activeChannels) {
                             val (decodedRow, _) = decodePackBits(bytes, rlePos, rowBytes, (rlePos + byteCount).coerceAtMost(bytes.size))
                             System.arraycopy(decodedRow, 0, channelData[c], y * rowBytes, rowBytes)
@@ -293,10 +297,11 @@ object LayeredImageDecoder {
             if (ptr in 1 until bytes.size) layerOffsets.add(ptr)
         }
 
+        if (compression !in 0..1 || layerOffsets.isEmpty()) return null
         val canvas = IntArray(width * height)
         // Composite layers bottom-to-top (XCF lists top-most layer first)
         for (layerOffset in layerOffsets.asReversed()) {
-            decodeAndCompositeXcfLayer(bytes, layerOffset, ptrSize, compression, width, height, canvas)
+            if (!decodeAndCompositeXcfLayer(bytes, layerOffset, ptrSize, compression, width, height, canvas)) return null
         }
 
         return createScaledBitmap(canvas, width, height, targetPx)
@@ -310,13 +315,13 @@ object LayeredImageDecoder {
         canvasW: Int,
         canvasH: Int,
         canvas: IntArray
-    ) {
-        if (layerOffset + 16 > bytes.size) return
+    ): Boolean {
+        if (layerOffset + 16 > bytes.size) return false
         val layerW = u32be(bytes, layerOffset).toInt()
         val layerH = u32be(bytes, layerOffset + 4).toInt()
         val layerType = u32be(bytes, layerOffset + 8).toInt()
         val nameLen = u32be(bytes, layerOffset + 12).toInt()
-        if (layerW <= 0 || layerH <= 0 || nameLen < 0) return
+        if (!isValidDimensions(layerW, layerH) || layerType !in 0..3 || nameLen < 0) return false
 
         var pos = layerOffset + 16 + nameLen
         var visible = true
@@ -329,7 +334,7 @@ object LayeredImageDecoder {
             val propLen = u32be(bytes, pos + 4).toInt()
             pos += 8
             if (propType == 0) break
-            if (pos + propLen > bytes.size || propLen < 0) return
+            if (pos + propLen > bytes.size || propLen < 0) return false
             when (propType) {
                 6 -> if (propLen >= 4) opacity = u32be(bytes, pos).toInt().coerceIn(0, 255) // PROP_OPACITY
                 8 -> if (propLen >= 4) visible = u32be(bytes, pos) != 0L // PROP_VISIBLE
@@ -340,14 +345,15 @@ object LayeredImageDecoder {
             }
             pos += propLen
         }
-        if (!visible || opacity == 0) return
+        if (!visible || opacity == 0) return true
 
         val hierarchyPtr = if (ptrSize == 8) u32be(bytes, pos + 4).toInt() else u32be(bytes, pos).toInt()
-        if (hierarchyPtr <= 0 || hierarchyPtr + 12 + ptrSize > bytes.size) return
+        if (hierarchyPtr <= 0 || hierarchyPtr + 12 + ptrSize > bytes.size) return false
 
-        val bpp = u32be(bytes, hierarchyPtr + 8).toInt().coerceIn(1, 16)
+        val bpp = u32be(bytes, hierarchyPtr + 8).toInt()
+        if (bpp != when (layerType) { 0 -> 3; 1 -> 4; 2 -> 1; 3 -> 2; else -> return false }) return false
         val levelPtr = if (ptrSize == 8) u32be(bytes, hierarchyPtr + 16).toInt() else u32be(bytes, hierarchyPtr + 12).toInt()
-        if (levelPtr <= 0 || levelPtr + 8 + ptrSize > bytes.size) return
+        if (levelPtr <= 0 || levelPtr + 8 + ptrSize > bytes.size) return false
 
         val tilesX = (layerW + 63) / 64
         val tilesY = (layerH + 63) / 64
@@ -355,10 +361,10 @@ object LayeredImageDecoder {
 
         for (ty in 0 until tilesY) {
             for (tx in 0 until tilesX) {
-                if (tPtrPos + ptrSize > bytes.size) return
+                if (tPtrPos + ptrSize > bytes.size) return false
                 val tileOffset = if (ptrSize == 8) u32be(bytes, tPtrPos + 4).toInt() else u32be(bytes, tPtrPos).toInt()
                 tPtrPos += ptrSize
-                if (tileOffset <= 0 || tileOffset >= bytes.size) continue
+                if (tileOffset <= 0 || tileOffset >= bytes.size) return false
 
                 val tileW = minOf(64, layerW - tx * 64)
                 val tileH = minOf(64, layerH - ty * 64)
@@ -367,9 +373,10 @@ object LayeredImageDecoder {
 
                 if (compression == 0) {
                     val avail = (bytes.size - tileOffset).coerceAtMost(tileBuf.size)
+                    if (avail != tileBuf.size) return false
                     if (avail > 0) System.arraycopy(bytes, tileOffset, tileBuf, 0, avail)
                 } else if (compression == 1) {
-                    decodeXcfRleTile(bytes, tileOffset, tilePixels, bpp, tileBuf)
+                    if (!decodeXcfRleTile(bytes, tileOffset, tilePixels, bpp, tileBuf)) return false
                 }
 
                 for (py in 0 until tileH) {
@@ -427,48 +434,29 @@ object LayeredImageDecoder {
                 }
             }
         }
+        return true
     }
 
-    private fun decodeXcfRleTile(bytes: ByteArray, startPos: Int, numPixels: Int, bpp: Int, outInterleaved: ByteArray) {
+    private fun decodeXcfRleTile(bytes: ByteArray, startPos: Int, numPixels: Int, bpp: Int, outInterleaved: ByteArray): Boolean {
         var pos = startPos
         for (c in 0 until bpp) {
-            var remaining = numPixels
             var px = 0
-            while (remaining > 0 && pos < bytes.size) {
+            while (px < numPixels) {
+                if (pos >= bytes.size) return false
                 val n = u8(bytes, pos++)
-                if (n <= 126) {
-                    val run = (n + 1).coerceAtMost(remaining)
-                    val v = if (pos < bytes.size) bytes[pos++] else 0
-                    for (i in 0 until run) {
-                        outInterleaved[(px++) * bpp + c] = v
-                    }
-                    remaining -= run
-                } else if (n == 127) {
-                    if (pos + 2 > bytes.size) break
-                    val run = u16be(bytes, pos).coerceAtMost(remaining)
+                val literal = n >= 128
+                val count = if (n == 127 || n == 128) {
+                    if (pos + 2 > bytes.size) return false
+                    val count = u16be(bytes, pos)
                     pos += 2
-                    val v = if (pos < bytes.size) bytes[pos++] else 0
-                    for (i in 0 until run) {
-                        outInterleaved[(px++) * bpp + c] = v
-                    }
-                    remaining -= run
-                } else if (n == 128) {
-                    if (pos + 2 > bytes.size) break
-                    val run = u16be(bytes, pos).coerceAtMost(remaining)
-                    pos += 2
-                    for (i in 0 until run) {
-                        outInterleaved[(px++) * bpp + c] = if (pos < bytes.size) bytes[pos++] else 0
-                    }
-                    remaining -= run
-                } else {
-                    val run = (256 - n).coerceAtMost(remaining)
-                    for (i in 0 until run) {
-                        outInterleaved[(px++) * bpp + c] = if (pos < bytes.size) bytes[pos++] else 0
-                    }
-                    remaining -= run
-                }
+                    count
+                } else if (literal) 256 - n else n + 1
+                if (count <= 0 || count > numPixels - px || (if (literal) count else 1) > bytes.size - pos) return false
+                val value = if (literal) 0 else u8(bytes, pos++)
+                repeat(count) { outInterleaved[(px++) * bpp + c] = if (literal) bytes[pos++] else value.toByte() }
             }
         }
+        return true
     }
 
     fun decodeAseprite(bytes: ByteArray, targetPx: Int): Bitmap? {

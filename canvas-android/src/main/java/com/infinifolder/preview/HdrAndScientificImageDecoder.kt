@@ -115,7 +115,7 @@ object HdrAndScientificImageDecoder {
         val scanline = ByteArray(width * 4)
 
         for (y in 0 until height) {
-            if (pos + 4 > bytes.size) break
+            if (pos + 4 > bytes.size) return null
             val b0 = u8(bytes, pos)
             val b1 = u8(bytes, pos + 1)
             val b2 = u8(bytes, pos + 2)
@@ -129,23 +129,27 @@ object HdrAndScientificImageDecoder {
                     while (x < width && pos < bytes.size) {
                         val code = u8(bytes, pos++)
                         if (code > 128) {
-                            val run = (code - 128).coerceAtMost(width - x)
-                            val v = if (pos < bytes.size) bytes[pos++] else 0
+                            val run = code - 128
+                            if (run > width - x || pos >= bytes.size) return null
+                            val v = bytes[pos++]
                             for (i in 0 until run) {
                                 scanline[(x++) * 4 + ch] = v
                             }
                         } else {
-                            val run = code.coerceAtMost(width - x)
+                            val run = code
+                            if (run == 0 || run > width - x || run > bytes.size - pos) return null
                             for (i in 0 until run) {
-                                scanline[(x++) * 4 + ch] = if (pos < bytes.size) bytes[pos++] else 0
+                                scanline[(x++) * 4 + ch] = bytes[pos++]
                             }
                         }
                     }
+                    if (x != width) return null
                 }
             } else {
                 // Uncompressed RGBE scanline
+                if (width * 4 > bytes.size - pos) return null
                 for (i in 0 until width * 4) {
-                    scanline[i] = if (pos < bytes.size) bytes[pos++] else 0
+                    scanline[i] = bytes[pos++]
                 }
             }
 
@@ -179,7 +183,7 @@ object HdrAndScientificImageDecoder {
     fun decodeOpenExr(bytes: ByteArray, targetPx: Int): Bitmap? {
         if (bytes.size < 32 || u32le(bytes, 0) != 0x01312F76L) return null
         val versionAndFlags = u32le(bytes, 4).toInt()
-        if ((versionAndFlags and 0x200) != 0) return null // Tiled EXR not handled here; scanline EXR supported
+        if ((versionAndFlags and 0x1E00) != 0) return null // Tiled EXR not handled here; scanline EXR supported
 
         var pos = 8
         var compression = 0 // 0=NO_COMPRESSION, 1=RLE, 2=ZIPS, 3=ZIP
@@ -220,6 +224,7 @@ object HdrAndScientificImageDecoder {
                         val chName = readCString()
                         if (chName.isEmpty() || pos + 16 > attrEnd) break
                         val pType = s32le(bytes, pos)
+                        if (pType !in 0..2 || s32le(bytes, pos + 8) != 1 || s32le(bytes, pos + 12) != 1) return null
                         channels.add(ExrChannel(chName, pType))
                         pos += 16
                     }
@@ -233,7 +238,7 @@ object HdrAndScientificImageDecoder {
         if (!isValidDimensions(width, height) || channels.isEmpty()) return null
 
         val linesPerBlock = when (compression) {
-            0, 1, 2 -> 1
+            0, 2 -> 1
             3 -> 16
             else -> return null
         }
@@ -243,14 +248,16 @@ object HdrAndScientificImageDecoder {
 
         val bytesPerPixelAllChannels = channels.sumOf { if (it.pixelType == 1) 2 else 4 }
         val pixels = IntArray(width * height) { 0xFF000000.toInt() }
+        val decodedRows = BooleanArray(height)
 
         for (bIdx in 0 until numBlocks) {
+            if (u32le(bytes, offsetTableStart + bIdx * 8 + 4) != 0L) return null
             val chunkOffset = u32le(bytes, offsetTableStart + bIdx * 8).toInt()
-            if (chunkOffset <= 0 || chunkOffset + 8 > bytes.size) continue
+            if (chunkOffset < offsetTableStart + numBlocks * 8 || chunkOffset > bytes.size - 8) return null
             val chunkY = s32le(bytes, chunkOffset) - yMin
             val packedSize = s32le(bytes, chunkOffset + 4)
             val dataStart = chunkOffset + 8
-            if (packedSize < 0 || dataStart + packedSize > bytes.size) continue
+            if (packedSize < 0 || packedSize > bytes.size - dataStart || chunkY !in 0 until height) return null
 
             val rowsInBlock = minOf(linesPerBlock, height - chunkY).coerceAtLeast(0)
             val expectedBytes = rowsInBlock * width * bytesPerPixelAllChannels
@@ -264,17 +271,19 @@ object HdrAndScientificImageDecoder {
                             InflaterInputStream(ByteArrayInputStream(bytes, dataStart, packedSize)).use { it.readBytes() }
                         } catch (_: Throwable) {
                             null
-                        } ?: continue
+                        } ?: return null
                         reconstructExrZipPredictorAndInterleave(inflated)
                     }
                 }
-                else -> continue
+                else -> return null
             }
 
+            if (blockData.size != expectedBytes) return null
             var blockPos = 0
             for (ry in 0 until rowsInBlock) {
                 val y = chunkY + ry
-                if (y !in 0 until height) break
+                if (y !in 0 until height || decodedRows[y]) return null
+                decodedRows[y] = true
                 val rRow = FloatArray(width)
                 val gRow = FloatArray(width)
                 val bRow = FloatArray(width)
@@ -292,7 +301,7 @@ object HdrAndScientificImageDecoder {
                         else -> null
                     }
                     for (x in 0 until width) {
-                        if (blockPos + step > blockData.size) break
+                        if (blockPos + step > blockData.size) return null
                         if (targetArr != null) {
                             val v = when (ch.pixelType) {
                                 1 -> halfToFloat(u16le(blockData, blockPos))
@@ -316,6 +325,7 @@ object HdrAndScientificImageDecoder {
             }
         }
 
+        if (decodedRows.any { !it }) return null
         return createScaledBitmap(pixels, width, height, targetPx)
     }
 
@@ -361,6 +371,8 @@ object HdrAndScientificImageDecoder {
 
         val pixels = IntArray(width * height)
         if ((pfFlags and 0x4) != 0) {
+            val blockBytes = when (fourCC) { "DXT1" -> 8; "DXT2", "DXT3", "DXT4", "DXT5" -> 16; else -> return null }
+            if (((width + 3L) / 4) * ((height + 3L) / 4) * blockBytes > bytes.size - dataOffset) return null
             when (fourCC) {
                 "DXT1" -> decodeDxtBlocks(bytes, dataOffset, width, height, 1, pixels)
                 "DXT2", "DXT3" -> decodeDxtBlocks(bytes, dataOffset, width, height, 3, pixels)
@@ -369,6 +381,7 @@ object HdrAndScientificImageDecoder {
             }
         } else if ((pfFlags and 0x40) != 0 && rgbBitCount in setOf(16, 24, 32)) {
             val step = rgbBitCount / 8
+            if (width.toLong() * height * step > bytes.size - dataOffset) return null
             val rShift = java.lang.Long.numberOfTrailingZeros(rMask).takeIf { it < 64 } ?: 16
             val gShift = java.lang.Long.numberOfTrailingZeros(gMask).takeIf { it < 64 } ?: 8
             val bShift = java.lang.Long.numberOfTrailingZeros(bMask).takeIf { it < 64 } ?: 0
@@ -567,6 +580,8 @@ object HdrAndScientificImageDecoder {
 
         val planePixels = width * height
         val channels = if (naxis >= 3 && depth >= 3) 3 else 1
+        if (bitpix !in setOf(8, 16, 32, -32, -64)) return null
+        if (planePixels.toLong() * channels * (kotlin.math.abs(bitpix) / 8) > bytes.size - dataStart) return null
         val samples = DoubleArray(planePixels * channels)
         var dPos = dataStart
         var minVal = Double.POSITIVE_INFINITY
@@ -679,6 +694,10 @@ object HdrAndScientificImageDecoder {
         }
 
         val totalPixels = cols * rows
+        if (!(samplesPerPixel == 1 && bitsAllocated in setOf(8, 16) && photometric in setOf("MONOCHROME1", "MONOCHROME2") ||
+                samplesPerPixel == 3 && bitsAllocated == 8 && photometric == "RGB")) return null
+        val required = totalPixels.toLong() * samplesPerPixel * (bitsAllocated / 8)
+        if (required > pixelDataLength || required > bytes.size - pixelDataOffset) return null
         val pixels = IntArray(totalPixels)
         var dPos = pixelDataOffset
 

@@ -67,7 +67,7 @@ object TiffAndRawImageDecoder {
         fun r32(off: Int): Long = if (le) u32le(bytes, off) else u32be(bytes, off)
 
         val magic = r16(2)
-        if (magic != 42 && magic != 43) return null
+        if (magic != 42) return null // BigTIFF uses a different directory layout.
         val firstIfdOffset = r32(4).toInt()
         if (firstIfdOffset !in 8 until bytes.size) return null
 
@@ -230,20 +230,25 @@ object TiffAndRawImageDecoder {
 
         if (!isValidDimensions(width, height)) return null
         if (planarConfig != 1) return null // Chunky interleaved supported
-        val bps = bitsPerSample.firstOrNull()?.takeIf { it in setOf(1, 2, 4, 8, 16, 32) } ?: 8
-        val spp = samplesPerPixel.coerceIn(1, 8)
+        if (compression !in setOf(1, 5, 8, 32946, 32773)) return null
+        val bps = bitsPerSample.firstOrNull()?.takeIf { it in setOf(1, 8, 16) } ?: return null
+        if (bitsPerSample.any { it != bps } || predictor !in 1..2 || predictor == 2 && bps != 8) return null
+        if (samplesPerPixel !in 1..8) return null
+        val spp = samplesPerPixel
         val rowBytes = (width * spp * bps + 7) / 8
         val rawImageBytes = ByteArray(rowBytes * height)
 
         if (tileOffsets.isNotEmpty() && tileByteCounts.isNotEmpty() && tileWidth > 0 && tileLength > 0) {
             val tilesAcross = (width + tileWidth - 1) / tileWidth
+            if (tileOffsets.size != tilesAcross * ((height + tileLength - 1) / tileLength) || tileByteCounts.size != tileOffsets.size) return null
             val tileRowBytes = (tileWidth * spp * bps + 7) / 8
             val expectedTileBytes = tileRowBytes * tileLength
             for (tIdx in tileOffsets.indices) {
                 val off = tileOffsets[tIdx]
                 val count = tileByteCounts.getOrElse(tIdx) { 0 }
-                if (off <= 0 || count <= 0 || off + count > bytes.size) continue
-                val tileData = decompressStrip(bytes, off, count, compression, expectedTileBytes) ?: continue
+                if (off <= 0 || count <= 0 || off > bytes.size - count) return null
+                val tileData = decompressStrip(bytes, off, count, compression, expectedTileBytes) ?: return null
+                if (tileData.size < expectedTileBytes) return null
                 if (predictor == 2 && bps == 8) {
                     applyHorizontalDifferencingPredictor(tileData, tileWidth, tileLength, spp)
                 }
@@ -268,10 +273,10 @@ object TiffAndRawImageDecoder {
                 val expectedStripBytes = rowsInThisStrip * rowBytes
                 val count = stripByteCounts.getOrElse(sIdx) { expectedStripBytes }
                 if (off <= 0 || count <= 0 || off + count > bytes.size) {
-                    curRow += rowsInThisStrip
-                    continue
+                    return null
                 }
-                val stripData = decompressStrip(bytes, off, count, compression, expectedStripBytes)
+                val stripData = decompressStrip(bytes, off, count, compression, expectedStripBytes) ?: return null
+                if (stripData.size < expectedStripBytes) return null
                 if (stripData != null) {
                     if (predictor == 2 && bps == 8) {
                         applyHorizontalDifferencingPredictor(stripData, width, rowsInThisStrip, spp)
@@ -283,6 +288,7 @@ object TiffAndRawImageDecoder {
                 }
                 curRow += rowsInThisStrip
             }
+            if (curRow != height) return null
         } else {
             return null
         }

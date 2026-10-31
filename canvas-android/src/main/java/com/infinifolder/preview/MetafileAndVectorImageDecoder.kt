@@ -149,6 +149,7 @@ object MetafileAndVectorImageDecoder {
         }
 
         val rowStride = ((width * bitCount + 31) / 32) * 4
+        if (rowStride.toLong() * height > limit - pixelOffset) return null
         val pixels = IntArray(width * height)
         for (y in 0 until height) {
             val srcY = if (topDown) y else (height - 1 - y)
@@ -238,8 +239,10 @@ object MetafileAndVectorImageDecoder {
         val height = dims[1].toIntOrNull() ?: return null
         if (!isValidDimensions(width, height)) return null
 
-        val imageClass = nextLine()?.toIntOrNull() ?: 0 // 0 = DirectClass, 1 = PseudoClass
-        val compression = nextLine()?.toIntOrNull() ?: 0 // 0 = None, 1 = RLE
+        val imageClass = nextLine()?.toIntOrNull() ?: return null // 0 = DirectClass, 1 = PseudoClass
+        val compression = nextLine()?.toIntOrNull() ?: return null // 0 = None, 1 = RLE
+
+        if (imageClass !in 0..1 || compression !in 0..1) return null
 
         fun hexVal(c: Char): Int = when (c) {
             in '0'..'9' -> c - '0'
@@ -272,34 +275,38 @@ object MetafileAndVectorImageDecoder {
                 val r = nextHexByte()
                 val g = nextHexByte()
                 val b = nextHexByte()
-                if (r < 0 || g < 0 || b < 0) break
-                val count = if (compression == 0) 1 else ((nextHexByte().coerceAtLeast(0)) + 1)
+                if (r < 0 || g < 0 || b < 0) return null
+                val count = if (compression == 0) 1 else (nextHexByte().also { if (it < 0) return null } + 1)
+                if (count > totalPixels - px) return null
                 val color = packArgb(255, r, g, b)
                 for (k in 0 until count) {
                     if (px >= totalPixels) break
                     pixels[px++] = color
                 }
             }
+            if (px != totalPixels) return null
         } else {
-            val numColors = nextLine()?.toIntOrNull()?.coerceIn(1, 65536) ?: 256
+            val numColors = nextLine()?.toIntOrNull()?.takeIf { it in 1..256 } ?: return null
             val palette = IntArray(numColors)
             for (i in 0 until numColors) {
-                val r = nextHexByte().coerceAtLeast(0)
-                val g = nextHexByte().coerceAtLeast(0)
-                val b = nextHexByte().coerceAtLeast(0)
+                val r = nextHexByte().also { if (it < 0) return null }
+                val g = nextHexByte().also { if (it < 0) return null }
+                val b = nextHexByte().also { if (it < 0) return null }
                 palette[i] = packArgb(255, r, g, b)
             }
             var px = 0
             while (px < totalPixels && pos < text.length) {
                 val idx = nextHexByte()
-                if (idx < 0) break
-                val count = if (compression == 0) 1 else ((nextHexByte().coerceAtLeast(0)) + 1)
-                val color = palette[idx.coerceIn(0, numColors - 1)]
+                if (idx !in palette.indices) return null
+                val count = if (compression == 0) 1 else (nextHexByte().also { if (it < 0) return null } + 1)
+                if (count > totalPixels - px) return null
+                val color = palette[idx]
                 for (k in 0 until count) {
                     if (px >= totalPixels) break
                     pixels[px++] = color
                 }
             }
+            if (px != totalPixels) return null
         }
 
         return createScaledBitmap(pixels, width, height, targetPx)
@@ -314,7 +321,7 @@ object MetafileAndVectorImageDecoder {
         val depth = header[2].toIntOrNull() ?: 1
         if (!isValidDimensions(width, height) || depth !in setOf(1, 8)) return null
 
-        val endPrev = text.indexOf("%%EndPreview", lineEnd).takeIf { it >= 0 } ?: text.length
+        val endPrev = text.indexOf("%%EndPreview", lineEnd).takeIf { it >= 0 } ?: return null
         val body = text.substring(lineEnd + 1, endPrev)
         val hexBytes = ArrayList<Int>((width * height * depth + 7) / 8)
         var hi = -1
@@ -336,6 +343,7 @@ object MetafileAndVectorImageDecoder {
 
         val pixels = IntArray(width * height)
         val rowBytes = (width * depth + 7) / 8
+        if (hi >= 0 || hexBytes.size < rowBytes * height) return null
         for (y in 0 until height) {
             for (x in 0 until width) {
                 val v = if (depth == 1) {
@@ -548,11 +556,7 @@ object MetafileAndVectorImageDecoder {
                     0xB0 -> ((px + py) and 3) == 0         // Light shade ░
                     0xB1 -> ((px + py) and 1) == 0         // Medium shade ▒
                     0xB2 -> ((px + py) and 3) != 0         // Dark shade ▓
-                    else -> {
-                        // Simple deterministic glyph stipple for ASCII / box drawing characters
-                        val inBox = px in 1..6 && py in 2..13
-                        inBox && (((ch ushr ((px + py) and 7)) and 1) != 0)
-                    }
+                    else -> Cp437Font.isForeground(ch, px, py)
                 }
                 pixels[rowOff + px] = if (useFg) fg else bg
             }
