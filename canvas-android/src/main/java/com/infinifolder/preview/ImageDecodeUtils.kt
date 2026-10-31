@@ -16,6 +16,18 @@ internal object ImageDecodeUtils {
     @Volatile
     var lastDecodedPixelsForTest: DecodedPixels? = null
 
+    /** Existing viewer sampling rule, retained verbatim during extraction. */
+    fun sampleSize(width: Int, height: Int, targetWidth: Int, targetHeight: Int): Int {
+        require(targetWidth > 0 && targetHeight > 0)
+        var sample = 1
+        if (height > targetHeight || width > targetWidth) {
+            val halfHeight = height / 2
+            val halfWidth = width / 2
+            while ((halfHeight / sample) >= targetHeight && (halfWidth / sample) >= targetWidth) sample *= 2
+        }
+        return sample
+    }
+
     fun isValidDimensions(width: Int, height: Int): Boolean {
         return width in 1..MAX_DIMENSION &&
             height in 1..MAX_DIMENSION &&

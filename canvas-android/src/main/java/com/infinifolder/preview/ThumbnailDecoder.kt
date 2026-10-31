@@ -141,6 +141,20 @@ class ThumbnailDecoder(
         null
     }
 
+    /** Full viewer decode including its original bounds/sample fallback; host retains bitmap ownership. */
+    fun decodeViewerFrame(uri: Uri, targetPx: Int): BitmapFrame? {
+        require(targetPx > 0)
+        val bitmap = decode(uri, targetPx) ?: openStream(uri)?.use { bounds ->
+            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeStream(bounds, null, options)
+            options.inSampleSize = ImageDecodeUtils.sampleSize(options.outWidth, options.outHeight, targetPx, targetPx)
+            options.inJustDecodeBounds = false
+            openStream(uri)?.use { pixels -> BitmapFactory.decodeStream(pixels, null, options) }
+        }
+        return bitmap?.let { BitmapFrame(it, provenance = io.github.gretchycat.infinistream.Provenance(
+            source = uri.toString(), transformations = listOf("image.decode"))) }
+    }
+
     private fun decodePlatform(uri: Uri, targetPx: Int, cachedBytes: ByteArray? = null): Bitmap? {
         if (cachedBytes != null) {
             return if (Build.VERSION.SDK_INT >= 28) {
