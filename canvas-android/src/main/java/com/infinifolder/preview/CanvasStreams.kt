@@ -31,6 +31,21 @@ object CanvasStreams {
         return decoder.decode(uri, targetPixels)?.let { BitmapFrame(it,
             provenance = resource.metadata.provenance.copy(transformations = resource.metadata.provenance.transformations + "image.decode"), warnings = resource.metadata.warnings) }
     }
+
+    /** Full viewer route retains the existing native-URI fast path, sampling and bounds fallback. */
+    fun decodeViewer(resolver: ContentResolver, resource: SourceResource, uri: Uri, targetPixels: Int): BitmapFrame? {
+        val input = resource.metadata
+        val decoder = ThumbnailDecoder(resolver) { resource.open().asInputStream() }
+        // A URI is only an optimization hint; it must never substitute unrelated/transformed bytes.
+        val decodeUri = if (canUseNativeUri(input, uri.toString())) uri else
+            Uri.Builder().scheme("infinistream").authority("image").appendPath(input.name ?: uri.lastPathSegment ?: "image").build()
+        val frame = decoder.decodeViewerFrame(decodeUri, targetPixels) ?: return null
+        return BitmapFrame(frame.bitmap, provenance = input.provenance.copy(
+            transformations = input.provenance.transformations + "image.decode"), warnings = input.warnings)
+    }
+
+    internal fun canUseNativeUri(input: StreamMetadata, uri: String): Boolean =
+        input.provenance.source == uri && input.provenance.transformations.isEmpty()
 }
 
 fun ThumbnailDecoder.decodeFrame(uri: Uri, targetPixels: Int): BitmapFrame? = decode(uri, targetPixels)?.let {
