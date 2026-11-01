@@ -111,3 +111,9 @@ This correction adds 15 independent cases (67 total, all passing). The consuming
 APK rejects all 14 malformed/unsupported image probes and matches the real `A`
 glyph while all 12 original image controls still decode. Its existing 35 native
 viewport/edit/metadata/PDF groups also pass; handset UI acceptance remains separate.
+
+`CachedImageCodec` decodes already bounded artwork bytes with the existing Android
+power-of-two sampling and aspect-preserving thumbnail sizing. It exposes original
+pixel dimensions separately from the owned `BitmapFrame`; use `takeBitmap()` to
+transfer pixels to a host cache. Cache naming, freshness, provenance checks and
+publication remain host policy. PNG output uses `ImageEncoding.png`.
