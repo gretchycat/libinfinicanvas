@@ -47,7 +47,7 @@ object RipScriptDecoder {
         var colour=15;var fillColour=15;var fillPattern=1;var customFill=IntArray(8){255}
         var linePattern=65535;var thick=scale;var xor=false
         var left=0;var top=0;var right=width-1;var bottom=height-1
-        var x=0;var y=0;var font=0;var fontSize=scale;var vertical=false
+        var x=0;var y=0;var font=0;var fontSize=1;var vertical=false
         var clipboard:IntArray?=null;var clipboardWidth=0;var clipboardHeight=0
         val warnings=linkedSetOf<String>()
         var work=0L;var commands=0;var recognised=0
@@ -109,15 +109,28 @@ object RipScriptDecoder {
         }
         fun Double.ceilToInt()=ceil(this).toInt()
         fun text(value:String) {
-            if(font!=0)warnings.add("BGI vector fonts use the CP437 bitmap fallback")
+            // BGI stroke sizes are fractional magnifications (size 4 is native),
+            // unlike DEFAULT_FONT's integer 8x8 magnification. LITT is only 9px high.
+            // Metrics: DosWorld/dwbgi DOCS/CHR.MD; shapes remain a reported fallback.
+            val strokeFactors=doubleArrayOf(1.0,0.6,2.0/3,0.75,1.0,4.0/3,5.0/3,2.0,2.5,3.0,4.0)
+            val nominalHeights=intArrayOf(8,31,9,32,32,37,35,31,35,55,60)
+            val factor=strokeFactors[fontSize]
+            val glyphHeight=if(font==0)8*fontSize*scale else
+                (nominalHeights[font.coerceIn(1,10)]*factor*scale).roundToInt().coerceAtLeast(1)
+            if(font!=0)warnings.add("BGI vector fonts use a metric-scaled CP437 bitmap fallback")
             for(ch in value) {
-                for(yy in 0..7)for(xx in 0..7)if(Cp437Font.isForeground(ch.code,xx,yy*2))
-                    for(dy in 0 until fontSize)for(dx in 0 until fontSize) {
-                        val gx=xx*fontSize+dx;val gy=yy*fontSize+dy
+                val glyphWidth=if(font==0)8*fontSize*scale else {
+                    val nativeWidth=if(font==2)6.0 else nominalHeights[font.coerceIn(1,10)]*0.65
+                    (nativeWidth*factor*scale).roundToInt().coerceAtLeast(1)
+                }
+                for(gy in 0 until glyphHeight)for(gx in 0 until glyphWidth) {
+                    val sourceX=gx*8/glyphWidth;val sourceY=gy*8/glyphHeight
+                    if(Cp437Font.isForeground(ch.code,sourceX,sourceY*2)) {
                         if(vertical)pixel(x+gy,y-gx)else pixel(x+gx,y+gy)
                     }
-                if(vertical)y-=8*fontSize else x+=8*fontSize
-                checkWork(64)
+                }
+                if(vertical)y-=glyphWidth else x+=glyphWidth
+                checkWork(glyphWidth*glyphHeight)
             }
         }
         fun flood(sx:Int,sy:Int,border:Int) {
@@ -150,7 +163,7 @@ object RipScriptDecoder {
                 "m"->{x=a.coord();y=a.coord()}
                 "T"->text(a.string())
                 "@"->{x=a.coord();y=a.coord();text(a.string())}
-                "Y"->{font=a.number();vertical=a.number()==1;fontSize=a.number().coerceIn(1,10)*scale;a.number()}
+                "Y"->{font=a.number();vertical=a.number()==1;fontSize=a.number().coerceIn(1,10);a.number()}
                 "X"->{val n=a.coords(2);for(dy in 0 until scale)for(dx in 0 until scale)pixel(n[0]+dx,n[1]+dy,colour,false)}
                 "L"->{val n=a.coords(4);line(n[0],n[1],n[2],n[3])}
                 "R","B"->{val n=a.coords(4)
