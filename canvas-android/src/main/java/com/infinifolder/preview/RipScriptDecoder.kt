@@ -111,17 +111,37 @@ object RipScriptDecoder {
         fun text(value:String) {
             // BGI stroke sizes are fractional magnifications (size 4 is native),
             // unlike DEFAULT_FONT's integer 8x8 magnification. LITT is only 9px high.
-            // Metrics: DosWorld/dwbgi DOCS/CHR.MD; shapes remain a reported fallback.
+            // Measured per-character BGI advances prevent long Triplex labels from overflowing.
+            // Shapes remain a reported CP437 fallback; measurements are in RipFontMetrics.
             val strokeFactors=doubleArrayOf(1.0,0.6,2.0/3,0.75,1.0,4.0/3,5.0/3,2.0,2.5,3.0,4.0)
-            val nominalHeights=intArrayOf(8,31,9,32,32,37,35,31,35,55,60)
             val factor=strokeFactors[fontSize]
+            val strokeFont=if(font==0)null else BgiStrokeFonts.get(font)
+            if(strokeFont!=null) {
+                val oldThickness=thick;thick=scale
+                try {
+                    for(ch in value) {
+                        val glyph=strokeFont.glyph(ch.code) ?: continue
+                        var previous:Pair<Int,Int>?=null
+                        for(vertex in glyph.vertices) {
+                            val gx=(vertex.x*factor*scale).toInt()
+                            val gy=(strokeFont.ascender*factor*scale).toInt()-(vertex.y*factor*scale).toInt()
+                            val point=if(vertical)(x+gy) to (y-gx) else (x+gx) to (y+gy)
+                            if(vertex.draw && previous!=null)line(previous.first,previous.second,point.first,point.second,65535)
+                            previous=point
+                            checkWork()
+                        }
+                        val advance=(glyph.advance*factor*scale).toInt()
+                        if(vertical)y-=advance else x+=advance
+                    }
+                } finally {thick=oldThickness}
+                return
+            }
             val glyphHeight=if(font==0)8*fontSize*scale else
-                (nominalHeights[font.coerceIn(1,10)]*factor*scale).roundToInt().coerceAtLeast(1)
-            if(font!=0)warnings.add("BGI vector fonts use a metric-scaled CP437 bitmap fallback")
+                (RipFontMetrics.height(font)*factor*scale).toInt().coerceAtLeast(1)
+            if(font!=0)warnings.add("BGI stroke font unavailable; using metric-scaled CP437 fallback")
             for(ch in value) {
                 val glyphWidth=if(font==0)8*fontSize*scale else {
-                    val nativeWidth=if(font==2)6.0 else nominalHeights[font.coerceIn(1,10)]*0.65
-                    (nativeWidth*factor*scale).roundToInt().coerceAtLeast(1)
+                    (RipFontMetrics.advance(font,ch.code)*factor*scale).toInt().coerceAtLeast(1)
                 }
                 for(gy in 0 until glyphHeight)for(gx in 0 until glyphWidth) {
                     val sourceX=gx*8/glyphWidth;val sourceY=gy*8/glyphHeight

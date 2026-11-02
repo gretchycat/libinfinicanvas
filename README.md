@@ -148,3 +148,12 @@ shared thumbnail/full-viewer decoder routes `.rip` sources and exposes rendering
 warnings for unsupported commands/font substitutions. It never executes BBS
 commands or loads external icon/scene files. See the host's docs/ripscrip-graphics.md
 for supported primitives, limits and unverified device acceptance.
+
+RIP stroke-font fallback layout uses per-character advances and nominal heights
+measured from the reference RIPterm BGI fonts (reproducible using
+`scripts/measure-bgi-metrics.py`). This fixes proportional Triplex labels clipping
+at the edge of a scene. Those numeric measurements remain a fallback. The ten original BGI fonts are now
+bundled with retained upstream licensing/provenance under `third_party/bgi-fonts`.
+BgiStrokeFonts reads their actual CHR outlines, ascenders and proportional advances
+for EGA and high-resolution rendering; no runtime font download is needed.
+Missing/corrupt fonts use the reported CP437 fallback.
