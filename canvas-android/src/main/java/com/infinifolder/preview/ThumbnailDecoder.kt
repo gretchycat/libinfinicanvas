@@ -165,12 +165,15 @@ class ThumbnailDecoder(
     }
 
     /** Returns a bitmap whose longer side is about [targetPx], or null if the image cannot be previewed. */
-    fun decode(uri: Uri, targetPx: Int): Bitmap? = try {
+    fun decode(uri: Uri, targetPx: Int): Bitmap? = decode(uri,targetPx,null)
+
+    /** A known association can supply the renderer hint even when a content URI has no suffix. */
+    fun decode(uri: Uri, targetPx: Int, extensionHint: String?): Bitmap? = try {
         val cachedBytes = if (!isDirectUri(uri)) readStreamBytes(uri) ?: return null else null
         // Reuse the bounded prefix already loaded for stream-backed sources.
         // Direct Android handles retain platform detection; never reopen a possibly
         // one-shot content source merely to sniff its type.
-        val ext = cachedBytes?.let(ImageSignatures::extension) ?: extensionOf(uri)
+        val ext = cachedBytes?.let(ImageSignatures::extension) ?: extensionHint?.lowercase(java.util.Locale.ROOT) ?: extensionOf(uri)
         decodeCustomFormat(ext, uri, targetPx, cachedBytes) ?: run {
             decodePlatform(uri, targetPx, cachedBytes) ?: run {
                 val bytes = readBytesForCustomDecoder(uri, cachedBytes) ?: return@run null

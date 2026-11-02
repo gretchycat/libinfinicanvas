@@ -133,3 +133,8 @@ text uses native monospace rendering. This does not change document routing.
 ANSI icon previews also decode UTF-8 before reading escape sequences. Unicode
 box/block characters share the CP437 bitmap geometry; other Unicode characters
 use Android font fallback within the icon cell. CP437 input remains supported.
+
+`ThumbnailDecoder.decode(uri, targetPx, extensionHint)` lets hosts supply an
+authoritative renderer hint for opaque provider URIs or custom associations.
+Recognized byte signatures take priority. The original two-argument overload
+remains available; MIME/icon policy stays in the host.
