@@ -50,6 +50,7 @@ object RipScriptDecoder {
         var x=0;var y=0;var font=0;var fontSize=1;var vertical=false
         var clipboard:IntArray?=null;var clipboardWidth=0;var clipboardHeight=0
         val warnings=linkedSetOf<String>()
+        private val tty=RipTextWindow(indices,width,scale,{checkWork(it)},{warnings.add(it)})
         var work=0L;var commands=0;var recognised=0
         val deadline=System.nanoTime()+4_000_000_000L
         fun checkWork(amount:Int=1) {
@@ -173,9 +174,14 @@ object RipScriptDecoder {
             val code=if(level==0)token.take(1) else token.take(2)
             val a=Args(token.substring(code.length),scale)
             when(code) {
-                "*"->{left=0;top=0;right=width-1;bottom=height-1;indices.fill(0);palette=defaultPalette();clipboard=null;x=0;y=0}
+                "*"->{left=0;top=0;right=width-1;bottom=height-1;indices.fill(0);palette=defaultPalette();clipboard=null;x=0;y=0;tty.reset()}
                 "v"->{val n=a.coords(4);left=n[0];top=n[1];right=n[2]+scale-1;bottom=n[3]+scale-1;if(n.all{it==0})right=-1}
                 "E"->clear()
+                "w"->{val bounds=a.numbers(4);val wrap=a.number(1);val size=a.number(1);tty.configure(bounds,wrap,size)}
+                "e"->tty.clear()
+                "g"->{val tx=a.number();val ty=a.number();tty.go(tx,ty)}
+                "H"->tty.home()
+                ">"->tty.eraseToEnd()
                 "c"->colour=a.number().also{require(it<16)}
                 "Q"->palette=IntArray(16){ega(a.number().also{require(it<64)})}
                 "a"->{val index=a.number();val value=a.number();require(index<16 && value<64);palette[index]=ega(value)}
@@ -216,7 +222,12 @@ object RipScriptDecoder {
         }
         fun run(source:String):Scene {
             val logical=StringBuilder();var continued=false
-            for(physical in source.replace("\r\n","\n").replace('\r','\n').lineSequence()) {
+            val physicalLines=source.substringBefore('\u001a').replace("\r\n","\n").replace('\r','\n').split('\n')
+            for((lineIndex,physical) in physicalLines.withIndex()) {
+                if(logical.isEmpty() && !physical.startsWith("!|")) {
+                    tty.write(physical+if(lineIndex<physicalLines.lastIndex)"\r\n" else "")
+                    continue
+                }
                 val line=physical.trimEnd('\u001a')
                 val slashes=line.reversed().takeWhile{it=='\\'}.length
                 logical.append(if(slashes%2==1)line.dropLast(1)else line)
@@ -224,7 +235,7 @@ object RipScriptDecoder {
                 if(continued)continue
                 val row=logical.toString();logical.setLength(0)
                 if(!row.startsWith("!|")) {
-                    if(row.isNotBlank())warnings.add("TTY text outside graphics commands is not rendered")
+                    tty.write(row+"\r\n")
                     continue
                 }
                 val token=StringBuilder();var escaped=false

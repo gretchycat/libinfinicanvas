@@ -157,3 +157,10 @@ bundled with retained upstream licensing/provenance under `third_party/bgi-fonts
 BgiStrokeFonts reads their actual CHR outlines, ascenders and proportional advances
 for EGA and high-resolution rendering; no runtime font download is needed.
 Missing/corrupt fonts use the reported CP437 fallback.
+
+RIP text windows (`w/e/g/H/>`) composite CP437/ANSI TTY cells directly onto the
+indexed graphics surface. All five grid sizes, clipping, wrap/truncate, scrolling,
+cursor placement, common ANSI colours and erase operations are implemented. The
+legacy zero-bound disabled-window form used by RIPdraw is accepted; unsupported
+TTY attributes remain explicit warnings. Graphics continuation parsing remains
+separate from literal TTY backslashes.
