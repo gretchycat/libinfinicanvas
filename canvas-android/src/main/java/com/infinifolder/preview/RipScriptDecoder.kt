@@ -53,10 +53,14 @@ object RipScriptDecoder {
         private val tty=RipTextWindow(indices,width,scale,{checkWork(it)},{warnings.add(it)})
         var work=0L;var commands=0;var recognised=0
         val deadline=System.nanoTime()+4_000_000_000L
+        var nextDeadlineCheck=0L
         fun checkWork(amount:Int=1) {
             work+=amount
-            if(work>100_000_000L || Thread.currentThread().isInterrupted || System.nanoTime()>deadline)
-                error("RIPscrip rendering limit or cancellation")
+            if(work>100_000_000L)error("RIPscrip pixel-work limit exceeded")
+            if(work>=nextDeadlineCheck) {
+                nextDeadlineCheck=work+4096
+                if(Thread.currentThread().isInterrupted || System.nanoTime()>deadline)error("RIPscrip rendering limit or cancellation")
+            }
         }
         fun pixel(px:Int,py:Int,c:Int=colour,useXor:Boolean=xor) {
             checkWork()
@@ -167,9 +171,117 @@ object RipScriptDecoder {
                 enqueue(xx-1,yy);enqueue(xx+1,yy);enqueue(xx,yy-1);enqueue(xx,yy+1)}
         }
         fun clear() { for(yy in maxOf(top,0)..minOf(bottom,height-1))for(xx in maxOf(left,0)..minOf(right,width-1))pixel(xx,yy,0,false) }
+        private data class ButtonStyle(val width:Int=0,val height:Int=0,val orientation:Int=2,val flags:Int=256,
+            val bevel:Int=0,val fore:Int=15,val shadow:Int=0,val bright:Int=15,val dark:Int=8,val surface:Int=7,
+            val flags2:Int=0,val underline:Int=15,val corner:Int=7) {
+            fun has(flag:Int)=flags and flag!=0
+        }
+        private var buttonStyle=ButtonStyle()
+        private fun textExtent(label:String):Pair<Int,Int> {
+            val factor=doubleArrayOf(1.0,0.6,2.0/3,0.75,1.0,4.0/3,5.0/3,2.0,2.5,3.0,4.0)[fontSize]
+            val stroke=if(font==0)null else BgiStrokeFonts.get(font)
+            val w=if(font==0)label.length*8*fontSize*scale else label.sumOf {
+                ((stroke?.glyph(it.code)?.advance ?: RipFontMetrics.advance(font,it.code))*factor*scale).toInt()}
+            val h=if(font==0)8*fontSize*scale else (RipFontMetrics.height(font)*factor*scale).toInt()
+            return if(vertical)h to w else w to h
+        }
+        private fun solidBox(x0:Int,y0:Int,x1:Int,y1:Int,c:Int) {
+            for(yy in maxOf(top,y0,0)..minOf(bottom,y1,height-1))
+                for(xx in maxOf(left,x0,0)..minOf(right,x1,width-1))pixel(xx,yy,c,false)
+        }
+        private fun frame(x0:Int,y0:Int,x1:Int,y1:Int,highlight:Int,shadow:Int,corner:Int) {
+            if(x0>x1 || y0>y1)return
+            colour=highlight;line(x0,y1,x0,y0,65535,false);line(x0,y0,x1,y0,65535,false)
+            colour=shadow;line(x1,y0,x1,y1,65535,false);line(x1,y1,x0,y1,65535,false)
+            pixel(x0,y1,corner,false);pixel(x1,y0,corner,false)
+        }
+        private fun unavailableIcon(px:Int,py:Int,name:String) {
+            warnings.add("External ICN artwork not available: ${name.take(80)}")
+            val oldColour=colour;val oldThick=thick;val oldXor=xor;val oldPattern=linePattern
+            val oldX=x;val oldY=y;val oldFont=font;val oldSize=fontSize;val oldVertical=vertical
+            try {
+                thick=scale;xor=false;linePattern=65535
+                val label="Missing ICN: "+name.take(22)
+                val right=minOf(width-1,px+label.length*8*scale+4*scale)
+                frame(px,py,right,minOf(height-1,py+14*scale),15,15,15)
+                colour=15;font=0;fontSize=1;vertical=false;x=px+2*scale;y=py+3*scale;text(label)
+            } finally {
+                colour=oldColour;thick=oldThick;xor=oldXor;linePattern=oldPattern
+                x=oldX;y=oldY;font=oldFont;fontSize=oldSize;vertical=oldVertical
+            }
+        }
+        private fun button(n:IntArray,hotkey:Int,instanceFlags:Int,parts:List<String>) {
+            val style=buttonStyle
+            val bx=n[0];val by=n[1]
+            val br=if(style.width>0 && style.height>0)bx+style.width*scale-1 else n[2]
+            val bb=if(style.width>0 && style.height>0)by+style.height*scale-1 else n[3]
+            require(br>=bx && bb>=by){"Invalid RIP button bounds"}
+            val label=parts.getOrElse(1){""}
+            val oldColour=colour;val oldThick=thick;val oldXor=xor;val oldPattern=linePattern;val oldX=x;val oldY=y
+            try {
+                thick=scale;xor=false;linePattern=65535
+                val selected=instanceFlags and 1!=0
+                val hi=if(selected)style.dark else style.bright;val lo=if(selected)style.bright else style.dark
+                when {
+                    style.has(128)->unavailableIcon(bx,by,parts.firstOrNull().orEmpty())
+                    style.has(1)-> {
+                        val copied=clipboard
+                        if(copied==null)warnings.add("RIP clipboard button has no source image")
+                        else copied.forEachIndexed {i,c->pixel(bx+i%clipboardWidth,by+i/clipboardWidth,c,false)}
+                    }
+                    style.has(256)->solidBox(bx,by,br,bb,style.surface)
+                    else->warnings.add("Unsupported RIP button base style")
+                }
+                val bevel=if(style.has(512))style.bevel*scale else 0
+                require(bevel<=64*scale){"RIP button bevel exceeds limit"}
+                for(d in 1..bevel)frame(bx-d,by-d,br+d,bb+d,hi,lo,style.corner)
+                if(style.has(32768))frame(bx+scale,by+scale,br-scale,bb-scale,lo,hi,style.corner)
+                if(style.has(8)) {
+                    val inset=(minOf(br-bx,bb-by)/8).coerceAtMost(10*scale).coerceAtLeast(2*scale)
+                    frame(bx+inset,by+inset,br-inset,bb-inset,lo,hi,style.corner)
+                    frame(bx+inset+scale,by+inset+scale,br-inset-scale,bb-inset-scale,hi,lo,style.corner)
+                }
+                if(style.has(16)) {
+                    frame(bx-bevel-scale,by-bevel-scale,br+bevel+scale,bb+bevel+scale,0,0,0)
+                    frame(bx-bevel-2*scale,by-bevel-2*scale,br+bevel+2*scale,bb+bevel+2*scale,lo,hi,style.corner)
+                }
+                if(style.has(64))warnings.add("RIP automatic button clipboard capture is not supported")
+                if(label.isNotEmpty()) {
+                    val (tw,th)=textExtent(label)
+                    var tx=(bx+br-tw)/2;var ty=(by+bb-th)/2
+                    when(style.orientation) {
+                        0->ty=by-th-2*scale
+                        1->tx=bx-tw-2*scale
+                        3->tx=br+2*scale
+                        4->ty=bb+2*scale
+                    }
+                    if(style.orientation in setOf(0,2,4)) {
+                        val inset=if(style.has(8))20*scale else 10*scale
+                        if(style.flags2 and 8!=0)tx=bx+inset
+                        else if(style.flags2 and 16!=0)tx=br-inset-tw
+                    }
+                    if(selected){tx+=scale;ty+=scale}
+                    if(style.has(32)){colour=style.shadow;x=tx+scale;y=ty+scale;text(label)}
+                    colour=style.fore;x=tx;y=ty;text(label)
+                    val index=label.indexOfFirst {it.equals(hotkey.toChar(),true)}
+                    if(index>=0) {
+                        val advance=textExtent(label.substring(0,index)).first
+                        val hotWidth=textExtent(label[index].toString()).first
+                        if(style.flags2 and 2!=0){colour=style.underline;x=tx+advance;y=ty;text(label[index].toString())}
+                        if(style.has(2048)){colour=style.underline;line(tx+advance,ty+th,tx+advance+hotWidth-1,ty+th,65535,false)}
+                    }
+                }
+            } finally {colour=oldColour;thick=oldThick;xor=oldXor;linePattern=oldPattern;x=oldX;y=oldY}
+        }
+        private fun emit(token:String) {
+            try {command(token)}catch(error:IllegalArgumentException) {
+                val code=token.takeWhile {it.isDigit()}.let {prefix->token.take(prefix.length+1)}
+                warnings.add("Malformed RIP command $code skipped: ${error.message?.take(100)}")
+            }
+        }
         fun command(token:String) {
             if(token.isEmpty())return
-            require(++commands<=30000){"Too many RIPscrip commands"};checkWork()
+            if(++commands>30000)error("RIPscrip command limit exceeded");checkWork()
             val level=token[0].digitToIntOrNull() ?: 0
             val code=if(level==0)token.take(1) else token.take(2)
             val a=Args(token.substring(code.length),scale)
@@ -215,15 +327,28 @@ object RipScriptDecoder {
                 "1P"->{val px=a.coord();val py=a.coord();val mode=a.number();a.number(1);require(mode in 0..4)
                     clipboard?.forEachIndexed {i,c->val xx=px+i%clipboardWidth;val yy=py+i/clipboardWidth
                         if(xx in 0 until width && yy in 0 until height){val old=indices[yy*width+xx];pixel(xx,yy,when(mode){1->old xor c;2->old or c;3->old and c;4->c xor 15;else->c},false)}}}
+                "1B"->{
+                    val w=a.number();val h=a.number();val orient=a.number();val flags=a.number(4);val bevel=a.number()
+                    val colors=a.numbers(5);a.number();val flags2=a.number();val underline=a.number();val corner=a.number();a.number(6)
+                    require(orient in 0..4 && colors.all {it in 0..15} && underline<16 && corner<16){"Invalid button style"}
+                    buttonStyle=ButtonStyle(w,h,orient,flags,bevel,colors[0],colors[1],colors[2],colors[3],colors[4],flags2,underline,corner)
+                }
+                "1U"->{val n=a.coords(4);val hot=a.number();val flags=a.number(1);a.number(1);button(n,hot,flags,a.string().split("<>",limit=3))}
+                "1I"->{val px=a.coord();val py=a.coord();a.number();a.number(1);a.number();unavailableIcon(px,py,a.string())}
                 "1K","#"->Unit // Interaction metadata / end marker; no session side effects.
-                else->{warnings.add("Unsupported RIPscrip command: $code");return}
+                else->{warnings.add("Unsupported RIPscrip command: ${code.replace("\u001b","<ESC>")}");return}
             }
             recognised++
         }
         fun run(source:String):Scene {
             val logical=StringBuilder();var continued=false
             val physicalLines=source.substringBefore('\u001a').replace("\r\n","\n").replace('\r','\n').split('\n')
-            for((lineIndex,physical) in physicalLines.withIndex()) {
+            for((lineIndex,rawPhysical) in physicalLines.withIndex()) {
+                var physical=rawPhysical
+                if(logical.isEmpty()) {
+                    val alternate=physical.indices.firstOrNull {i->(physical[i]=='\u0001' || physical[i]=='\u0002') && physical.getOrNull(i+1)=='|'}
+                    if(alternate!=null){tty.write(physical.substring(0,alternate));physical="!"+physical.substring(alternate+1)}
+                }
                 if(logical.isEmpty() && !physical.startsWith("!|")) {
                     tty.write(physical+if(lineIndex<physicalLines.lastIndex)"\r\n" else "")
                     continue
@@ -240,10 +365,10 @@ object RipScriptDecoder {
                 }
                 val token=StringBuilder();var escaped=false
                 for(ch in row.substring(2)) {
-                    if(ch=='|' && !escaped){command(token.toString());token.setLength(0)}else token.append(ch)
+                    if(ch=='|' && !escaped){emit(token.toString());token.setLength(0)}else token.append(ch)
                     escaped=ch=='\\' && !escaped
                 }
-                command(token.toString())
+                emit(token.toString())
             }
             require(!continued){"Truncated RIPscrip continuation"}
             require(recognised>0){"No supported RIPscrip graphics commands"}

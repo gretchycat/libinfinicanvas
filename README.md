@@ -164,3 +164,10 @@ cursor placement, common ANSI colours and erase operations are implemented. The
 legacy zero-bound disabled-window form used by RIPdraw is accepted; unsupported
 TTY attributes remain explicit warnings. Graphics continuation parsing remains
 separate from literal TTY backslashes.
+
+Static RIP button definitions/instances now draw panels, bevel/recess/sunken
+styles, labels, selected appearance, shadows and hotkeys; chisel decoration is
+best-effort. External ICN references produce a labeled missing-art marker and
+warning; they are not fetched or invented. Recoverable malformed arguments skip
+only the affected command, preserving an explicitly partial scene. Budget and
+cancellation failures still abort. SOH/STX command prefixes are recognized.
