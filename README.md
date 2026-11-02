@@ -142,9 +142,12 @@ remains available; MIME/icon policy stays in the host.
 ## RIPscrip graphics
 
 RipScriptDecoder renders a bounded subset of RIPscrip 1.54 static graphics. EGA
-simulation (640×350 indexed colour, aspect-corrected presentation) is the default;
-an optional high-resolution mode replays geometry at up to 4× resolution. The
-shared thumbnail/full-viewer decoder routes `.rip` sources and exposes rendering
+simulation (640×350 indexed colour, aspect-corrected presentation) is the decoder
+and thumbnail default; the host viewer defaults to high-resolution geometry
+replay at up to 4× resolution. Boundary flood fills use a second indexed reference
+raster to avoid leaks that depend on resolution; this adds bounded render work
+while preserving each mode's geometry and palette. The shared thumbnail/full-viewer
+decoder routes `.rip` sources and exposes rendering
 warnings for unsupported commands/font substitutions. It never executes BBS
 commands or loads external icon/scene files. See the host's docs/ripscrip-graphics.md
 for supported primitives, limits and unverified device acceptance.

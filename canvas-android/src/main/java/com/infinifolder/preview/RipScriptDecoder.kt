@@ -40,7 +40,7 @@ object RipScriptDecoder {
         fun coords(count:Int)=IntArray(count){coord()}
         fun string()=text.substring(offset).replace(Regex("\\\\([!|\\\\])"),"$1")
     }
-    private class Renderer(val scale:Int) {
+    private class Renderer(val scale:Int,private val shadow:Boolean=false) {
         val width=640*scale;val height=350*scale
         val indices=IntArray(width*height)
         var palette=defaultPalette()
@@ -54,6 +54,12 @@ object RipScriptDecoder {
         var work=0L;var commands=0;var recognised=0
         val deadline=System.nanoTime()+4_000_000_000L
         var nextDeadlineCheck=0L
+        // One-pixel gaps and seeds landing on a border change with resolution. Check
+        // fill connectivity against a second raster of the same command stream instead
+        // of allowing those rounding differences to erase unrelated regions. Native EGA
+        // uses a 2x reference; high-resolution geometry uses the native reference.
+        private val reference=if(shadow)null else Renderer(if(scale>1)1 else 2,true)
+        private var floodCoverage:BooleanArray?=null
         fun checkWork(amount:Int=1) {
             work+=amount
             if(work>100_000_000L)error("RIPscrip pixel-work limit exceeded")
@@ -159,16 +165,33 @@ object RipScriptDecoder {
             }
         }
         fun flood(sx:Int,sy:Int,border:Int) {
+            floodCoverage=null
             if(sx !in left..right || sy !in top..bottom || sx !in 0 until width || sy !in 0 until height)return
+            val raster=reference
+            val coverage=raster?.floodCoverage
+            if(raster!=null && coverage==null)return
+            fun allowed(xx:Int,yy:Int):Boolean {
+                if(raster==null)return true
+                val mask=coverage ?: return false
+                val nx=xx*raster.scale/scale;val ny=yy*raster.scale/scale
+                if(mask[ny*raster.width+nx])return true
+                // Allow subpixel edge smoothing without flooding unrelated regions.
+                for(dy in -1..1)for(dx in -1..1) {
+                    val px=nx+dx;val py=ny+dy
+                    if(px in 0 until raster.width && py in 0 until raster.height && mask[py*raster.width+px])return true
+                }
+                return false
+            }
             val seen=BooleanArray(indices.size);val queue=IntArray(indices.size);var head=0;var tail=0
             fun enqueue(xx:Int,yy:Int) {
                 if(xx !in left..right || yy !in top..bottom || xx !in 0 until width || yy !in 0 until height)return
                 val p=yy*width+xx
-                if(!seen[p] && indices[p]!=border){seen[p]=true;queue[tail++]=p}
+                if(!seen[p] && indices[p]!=border && allowed(xx,yy)){seen[p]=true;queue[tail++]=p}
             }
             enqueue(sx,sy)
             while(head<tail){val p=queue[head++];val xx=p%width;val yy=p/width;fillPixel(xx,yy)
                 enqueue(xx-1,yy);enqueue(xx+1,yy);enqueue(xx,yy-1);enqueue(xx,yy+1)}
+            floodCoverage=seen
         }
         fun clear() { for(yy in maxOf(top,0)..minOf(bottom,height-1))for(xx in maxOf(left,0)..minOf(right,width-1))pixel(xx,yy,0,false) }
         private data class ButtonStyle(val width:Int=0,val height:Int=0,val orientation:Int=2,val flags:Int=256,
@@ -274,6 +297,7 @@ object RipScriptDecoder {
             } finally {colour=oldColour;thick=oldThick;xor=oldXor;linePattern=oldPattern;x=oldX;y=oldY}
         }
         private fun emit(token:String) {
+            reference?.emit(token)
             try {command(token)}catch(error:IllegalArgumentException) {
                 val code=token.takeWhile {it.isDigit()}.let {prefix->token.take(prefix.length+1)}
                 warnings.add("Malformed RIP command $code skipped: ${error.message?.take(100)}")
@@ -347,10 +371,10 @@ object RipScriptDecoder {
                 var physical=rawPhysical
                 if(logical.isEmpty()) {
                     val alternate=physical.indices.firstOrNull {i->(physical[i]=='\u0001' || physical[i]=='\u0002') && physical.getOrNull(i+1)=='|'}
-                    if(alternate!=null){tty.write(physical.substring(0,alternate));physical="!"+physical.substring(alternate+1)}
+                    if(alternate!=null){terminal(physical.substring(0,alternate));physical="!"+physical.substring(alternate+1)}
                 }
                 if(logical.isEmpty() && !physical.startsWith("!|")) {
-                    tty.write(physical+if(lineIndex<physicalLines.lastIndex)"\r\n" else "")
+                    terminal(physical+if(lineIndex<physicalLines.lastIndex)"\r\n" else "")
                     continue
                 }
                 val line=physical.trimEnd('\u001a')
@@ -360,7 +384,7 @@ object RipScriptDecoder {
                 if(continued)continue
                 val row=logical.toString();logical.setLength(0)
                 if(!row.startsWith("!|")) {
-                    tty.write(row+"\r\n")
+                    terminal(row+"\r\n")
                     continue
                 }
                 val token=StringBuilder();var escaped=false
@@ -373,6 +397,10 @@ object RipScriptDecoder {
             require(!continued){"Truncated RIPscrip continuation"}
             require(recognised>0){"No supported RIPscrip graphics commands"}
             return Scene(IntArray(indices.size){palette[indices[it]]},warnings.toList(),width,height)
+        }
+        private fun terminal(value:String) {
+            tty.write(value)
+            reference?.tty?.write(value)
         }
     }
     private fun ega(value:Int):Int {

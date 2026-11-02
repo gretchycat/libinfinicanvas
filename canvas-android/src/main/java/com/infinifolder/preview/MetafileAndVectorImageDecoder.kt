@@ -375,7 +375,10 @@ object MetafileAndVectorImageDecoder {
         put(0x2302,127)
     }
 
-    fun decodeAnsiArt(bytes: ByteArray, targetPx: Int, previewRows: Int = 500): Bitmap? {
+    fun decodeAnsiArt(bytes: ByteArray, targetPx: Int, previewRows: Int = 500): Bitmap? =
+        decodeAnsiArt(bytes,targetPx,previewRows,false)
+
+    fun decodeAnsiArt(bytes: ByteArray, targetPx: Int, previewRows: Int, trimMargins:Boolean): Bitmap? {
         var contentLen = bytes.size
         var cols = 80
         var rowsHint = 0
@@ -564,6 +567,20 @@ object MetafileAndVectorImageDecoder {
                 canvas.restore()
             }
             bitmap.getPixels(pixels,0,width,0,0,width,height);bitmap.recycle()
+        }
+        if(trimMargins) {
+            var left=width;var top=height;var right=-1;var bottom=-1
+            for(yy in 0 until height)for(xx in 0 until width) {
+                if(pixels[yy*width+xx]!=vga16[0]) {
+                    left=minOf(left,xx);top=minOf(top,yy);right=maxOf(right,xx);bottom=maxOf(bottom,yy)
+                }
+            }
+            if(right>=left && bottom>=top) {
+                val croppedWidth=right-left+1;val croppedHeight=bottom-top+1
+                val cropped=IntArray(croppedWidth*croppedHeight)
+                for(yy in 0 until croppedHeight)pixels.copyInto(cropped,yy*croppedWidth,(top+yy)*width+left,(top+yy)*width+right+1)
+                return createScaledBitmap(cropped,croppedWidth,croppedHeight,targetPx)
+            }
         }
         return createScaledBitmap(pixels, width, height, targetPx)
     }

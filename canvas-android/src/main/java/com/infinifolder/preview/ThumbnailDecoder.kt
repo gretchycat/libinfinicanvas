@@ -75,7 +75,7 @@ class ThumbnailDecoder(
             val utf16 = bytes.size >= 2 && ((bytes[0] == 0xff.toByte() && bytes[1] == 0xfe.toByte()) ||
                 (bytes[0] == 0xfe.toByte() && bytes[1] == 0xff.toByte()))
             if (!utf16 && (dosText || !validUtf8 || raw.contains("\u001b["))) {
-                MetafileAndVectorImageDecoder.decodeAnsiArt(bytes, targetPx, 25)
+                MetafileAndVectorImageDecoder.decodeAnsiArt(bytes, targetPx, 25, true)
             } else {
                 if (!utf16 && bytes.any { it == 0.toByte() }) return null
                 val decoded = String(bytes, if (utf16) Charsets.UTF_16 else Charsets.UTF_8).removePrefix("\uFEFF")
