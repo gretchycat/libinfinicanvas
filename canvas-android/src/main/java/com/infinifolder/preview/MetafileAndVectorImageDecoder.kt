@@ -379,6 +379,14 @@ object MetafileAndVectorImageDecoder {
         decodeAnsiArt(bytes,targetPx,previewRows,false)
 
     fun decodeAnsiArt(bytes: ByteArray, targetPx: Int, previewRows: Int, trimMargins:Boolean): Bitmap? {
+        return decodeAnsiArt(bytes,targetPx,previewRows,trimMargins,false)
+    }
+
+    /** Fit short art in full; cap tall art at a square terminal surface (80 columns = 40 rows). */
+    fun decodeAnsiIcon(bytes:ByteArray,targetPx:Int):Bitmap? =
+        decodeAnsiArt(bytes,targetPx,500,true,true)
+
+    private fun decodeAnsiArt(bytes:ByteArray,targetPx:Int,previewRows:Int,trimMargins:Boolean,squarePreview:Boolean):Bitmap? {
         var contentLen = bytes.size
         var cols = 80
         var rowsHint = 0
@@ -426,7 +434,8 @@ object MetafileAndVectorImageDecoder {
 
         data class Cell(val ch: Int, val fg: Int, val bg: Int)
 
-        val maxRows = (rowsHint.takeIf { it > 0 } ?: 100).coerceIn(25, previewRows.coerceIn(25, 500))
+        val maxRows = if(squarePreview) (cols*8/16).coerceAtLeast(1)
+            else (rowsHint.takeIf { it > 0 } ?: 100).coerceIn(25, previewRows.coerceIn(25, 500))
         val grid = Array(maxRows) { Array(cols) { Cell(0x20, vga16[7], vga16[0]) } }
 
         var curX = 0
@@ -438,11 +447,13 @@ object MetafileAndVectorImageDecoder {
         var pos = 0
 
         while (pos < contentLen) {
+            if(pos and 4095 == 0 && Thread.currentThread().isInterrupted)return null
             val b = content[pos++]
             when (b) {
                 0x1A -> break // SUB / EOF
                 0x0D -> curX = 0
                 0x0A -> {
+                    if(curX>=cols)curX=0 // A newline cancels a pending right-margin wrap.
                     curY++
                     if (curY > maxRowUsed) maxRowUsed = curY
                 }
@@ -507,13 +518,13 @@ object MetafileAndVectorImageDecoder {
                             }
                             'A' -> curY = (curY - (params.firstOrNull()?.coerceAtLeast(1) ?: 1)).coerceAtLeast(0)
                             'B' -> {
-                                curY = (curY + (params.firstOrNull()?.coerceAtLeast(1) ?: 1)).coerceAtMost(maxRows - 1)
+                                curY = (curY + (params.firstOrNull()?.coerceAtLeast(1) ?: 1)).coerceAtMost(10000)
                                 if (curY > maxRowUsed) maxRowUsed = curY
                             }
                             'C' -> curX = (curX + (params.firstOrNull()?.coerceAtLeast(1) ?: 1)).coerceAtMost(cols - 1)
                             'D' -> curX = (curX - (params.firstOrNull()?.coerceAtLeast(1) ?: 1)).coerceAtLeast(0)
                             'H', 'f' -> {
-                                curY = ((params.getOrElse(0) { 1 } - 1)).coerceIn(0, maxRows - 1)
+                                curY = ((params.getOrElse(0) { 1 } - 1)).coerceIn(0, 10000)
                                 curX = ((params.getOrElse(1) { 1 } - 1)).coerceIn(0, cols - 1)
                                 if (curY > maxRowUsed) maxRowUsed = curY
                             }
@@ -521,14 +532,13 @@ object MetafileAndVectorImageDecoder {
                     }
                 }
                 else -> {
+                    // ANSI autowrap is deferred until the next printable character.
+                    // Wrapping immediately doubles full-width CRLF lines and clips short art.
+                    if(curX>=cols) {curX=0;curY++}
                     if (curY in 0 until maxRows && curX in 0 until cols) {
                         grid[curY][curX] = Cell(if(utf8) unicodeToCp437[b] ?: -(b+1) else b, fg, bg)
                         if (curY > maxRowUsed) maxRowUsed = curY
                         curX++
-                        if (curX >= cols) {
-                            curX = 0
-                            curY++
-                        }
                     }
                 }
             }

@@ -52,30 +52,39 @@ class ThumbnailDecoder(
             uri.scheme == "android.resource" ||
             (uri.scheme == "file" && !uri.path.isNullOrEmpty())
 
-    /** First terminal page, read with a strict prefix bound; works with opaque content URIs. */
+    /** Bounded text preview; ANSI art fills up to a square rather than a fixed terminal page. */
     fun decodeTextPreview(uri: Uri, targetPx: Int, dosText: Boolean = false): Bitmap? {
         return try {
             require(targetPx > 0)
+            fun isAnsi(bytes:ByteArray):Boolean {
+                val utf16=bytes.size>=2 && ((bytes[0]==0xff.toByte() && bytes[1]==0xfe.toByte()) ||
+                    (bytes[0]==0xfe.toByte() && bytes[1]==0xff.toByte()))
+                if(utf16)return false
+                val utf8=Charsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                return dosText || String(bytes,Charsets.ISO_8859_1).contains("\u001b[") ||
+                    utf8.decode(ByteBuffer.wrap(bytes),java.nio.CharBuffer.allocate(bytes.size+1),false).isError
+            }
             val bytes = openStream(uri)?.use { input ->
                 val out = ByteArrayOutputStream()
                 val buffer = ByteArray(4096)
-                while (out.size() < 16 * 1024) {
-                    val count = input.read(buffer, 0, minOf(buffer.size, 16 * 1024 - out.size()))
-                    if (count < 0) break
-                    if (count == 0) break
-                    out.write(buffer, 0, count)
+                fun readTo(limit:Int) {
+                    while(out.size()<limit && !Thread.currentThread().isInterrupted) {
+                        val count=input.read(buffer,0,minOf(buffer.size,limit-out.size()))
+                        if(count<=0)break
+                        out.write(buffer,0,count)
+                    }
                 }
+                readTo(16*1024)
+                // Colour-heavy art can exceed 16 KiB well before row 40. Keep one bounded
+                // stream open; small complete files also retain their SAUCE dimensions.
+                if(isAnsi(out.toByteArray()))readTo(1024*1024)
                 out.toByteArray()
             } ?: return null
-            if (bytes.isEmpty()) return null
-            val utf8 = Charsets.UTF_8.newDecoder()
-                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
-            val validUtf8 = !utf8.decode(ByteBuffer.wrap(bytes), java.nio.CharBuffer.allocate(bytes.size + 1), false).isError
-            val raw = String(bytes, Charsets.ISO_8859_1)
+            if (bytes.isEmpty() || Thread.currentThread().isInterrupted) return null
             val utf16 = bytes.size >= 2 && ((bytes[0] == 0xff.toByte() && bytes[1] == 0xfe.toByte()) ||
                 (bytes[0] == 0xfe.toByte() && bytes[1] == 0xff.toByte()))
-            if (!utf16 && (dosText || !validUtf8 || raw.contains("\u001b["))) {
-                MetafileAndVectorImageDecoder.decodeAnsiArt(bytes, targetPx, 25, true)
+            if (isAnsi(bytes)) {
+                MetafileAndVectorImageDecoder.decodeAnsiIcon(bytes,targetPx)
             } else {
                 if (!utf16 && bytes.any { it == 0.toByte() }) return null
                 val decoded = String(bytes, if (utf16) Charsets.UTF_16 else Charsets.UTF_8).removePrefix("\uFEFF")

@@ -126,9 +126,15 @@ no proprietary ROM/font is imported. DOS `.asc`/`.diz`/`.nfo`/`.ansi` icon previ
 use the existing ANSI bitmap renderer; document viewing remains a host/Scribe job.
 
 Text icon previews can use `ThumbnailDecoder.decodeTextPreview(uri, targetPx, dosText)`
-without a filename-bearing URI. Reads are bounded to a 16 KiB prefix and the
-preview shows at most the first 25 rows; ANSI/CP437 uses terminal glyphs, Unicode
-text uses native monospace rendering. This does not change document routing.
+without a filename-bearing URI. Ordinary text reads a 16 KiB prefix and shows up
+to 25 rows using native monospace rendering. ANSI/CP437 reads up to 1 MiB (including
+SAUCE dimensions when the complete file fits) and uses terminal glyphs. Its icon
+renders short art in full, limiting tall art to a square terminal surface: 80 columns
+at 8x16 pixels gives 40 rows. Empty black margins are trimmed before aspect-preserving
+scaling. Right-margin wrapping is deferred until the next printable character, so
+full-width CRLF lines occupy one row. `decodeAnsiIcon` exposes this policy directly;
+the existing full-viewer `decodeAnsiArt` overloads retain their row limits. This does
+not change document routing.
 
 ANSI icon previews also decode UTF-8 before reading escape sequences. Unicode
 box/block characters share the CP437 bitmap geometry; other Unicode characters
