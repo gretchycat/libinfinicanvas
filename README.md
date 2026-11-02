@@ -129,3 +129,7 @@ Text icon previews can use `ThumbnailDecoder.decodeTextPreview(uri, targetPx, do
 without a filename-bearing URI. Reads are bounded to a 16 KiB prefix and the
 preview shows at most the first 25 rows; ANSI/CP437 uses terminal glyphs, Unicode
 text uses native monospace rendering. This does not change document routing.
+
+ANSI icon previews also decode UTF-8 before reading escape sequences. Unicode
+box/block characters share the CP437 bitmap geometry; other Unicode characters
+use Android font fallback within the icon cell. CP437 input remains supported.

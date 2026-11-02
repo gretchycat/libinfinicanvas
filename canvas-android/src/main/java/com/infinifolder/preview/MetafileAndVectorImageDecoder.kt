@@ -369,6 +369,12 @@ object MetafileAndVectorImageDecoder {
         return sample.contains("\u001b[")
     }
 
+    private val unicodeToCp437: Map<Int, Int> = buildMap {
+        val charset=java.nio.charset.Charset.forName("IBM437")
+        for(code in 32..255) put(String(byteArrayOf(code.toByte()),charset)[0].code,code)
+        put(0x2302,127)
+    }
+
     fun decodeAnsiArt(bytes: ByteArray, targetPx: Int, previewRows: Int = 500): Bitmap? {
         var contentLen = bytes.size
         var cols = 80
@@ -385,6 +391,14 @@ object MetafileAndVectorImageDecoder {
                 contentLen--
             }
         }
+
+        val decoder=Charsets.UTF_8.newDecoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+        val utf8 = !decoder.decode(java.nio.ByteBuffer.wrap(bytes,0,contentLen),
+            java.nio.CharBuffer.allocate(contentLen+1),false).isError
+        val content=if(utf8)java.text.Normalizer.normalize(String(bytes,0,contentLen,Charsets.UTF_8).removePrefix("\uFEFF"),
+            java.text.Normalizer.Form.NFC).codePoints().toArray()
+            else IntArray(contentLen) { u8(bytes,it) }
+        contentLen=content.size
 
         // Standard 16-color CGA/VGA ANSI palette
         val vga16 = intArrayOf(
@@ -421,7 +435,7 @@ object MetafileAndVectorImageDecoder {
         var pos = 0
 
         while (pos < contentLen) {
-            val b = u8(bytes, pos++)
+            val b = content[pos++]
             when (b) {
                 0x1A -> break // SUB / EOF
                 0x0D -> curX = 0
@@ -430,13 +444,13 @@ object MetafileAndVectorImageDecoder {
                     if (curY > maxRowUsed) maxRowUsed = curY
                 }
                 0x1B -> {
-                    if (pos < contentLen && bytes[pos].toInt().toChar() == '[') {
+                    if (pos < contentLen && content[pos].toChar() == '[') {
                         pos++
                         val params = ArrayList<Int>()
                         var curNum = -1
                         var cmdChar = 'm'
                         while (pos < contentLen) {
-                            val c = bytes[pos++].toInt().toChar()
+                            val c = content[pos++].toChar()
                             if (c in '0'..'9') {
                                 curNum = (if (curNum < 0) 0 else curNum * 10) + (c - '0')
                             } else if (c == ';') {
@@ -505,7 +519,7 @@ object MetafileAndVectorImageDecoder {
                 }
                 else -> {
                     if (curY in 0 until maxRows && curX in 0 until cols) {
-                        grid[curY][curX] = Cell(b, fg, bg)
+                        grid[curY][curX] = Cell(if(utf8) unicodeToCp437[b] ?: -(b+1) else b, fg, bg)
                         if (curY > maxRowUsed) maxRowUsed = curY
                         curX++
                         if (curX >= cols) {
@@ -527,10 +541,30 @@ object MetafileAndVectorImageDecoder {
         for (ry in 0 until finalRows) {
             for (cx in 0 until cols) {
                 val cell = grid[ry][cx]
-                renderCp437Cell(cell.ch, cell.fg, cell.bg, cx * cellW, ry * cellH, width, pixels)
+                renderCp437Cell(if(cell.ch<0)32 else cell.ch, cell.fg, cell.bg, cx * cellW, ry * cellH, width, pixels)
             }
         }
 
+        // Characters outside the CP437 repertoire use Android's Unicode font fallback.
+        if(grid.take(finalRows).any { row -> row.any { it.ch<0 } }) {
+            val bitmap=Bitmap.createBitmap(pixels,width,height,Bitmap.Config.ARGB_8888)
+            val canvas=android.graphics.Canvas(bitmap)
+            val paint=android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                typeface=android.graphics.Typeface.MONOSPACE;textSize=16f
+            }
+            for(ry in 0 until finalRows)for(cx in 0 until cols) {
+                val cell=grid[ry][cx]
+                if(cell.ch>=0)continue
+                val glyph=String(Character.toChars(-cell.ch-1))
+                paint.color=cell.fg;paint.textScaleX=1f
+                paint.textScaleX=8f/paint.measureText(glyph).coerceAtLeast(1f)
+                val metrics=paint.fontMetrics
+                canvas.save();canvas.clipRect(cx*8f,ry*16f,(cx+1)*8f,(ry+1)*16f)
+                canvas.drawText(glyph,cx*8f,ry*16f+(16f-metrics.descent+metrics.ascent)/2f-metrics.ascent,paint)
+                canvas.restore()
+            }
+            bitmap.getPixels(pixels,0,width,0,0,width,height);bitmap.recycle()
+        }
         return createScaledBitmap(pixels, width, height, targetPx)
     }
 
