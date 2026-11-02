@@ -104,6 +104,8 @@ class ThumbnailDecoder(
                 readBytesForCustomDecoder(uri, cachedBytes)?.let { RetroImageDecoder.decode(it, targetPx, ext) }
             "hdr", "exr", "dds", "ktx", "fits", "fit", "fts", "dcm", "dicom" ->
                 readBytesForCustomDecoder(uri, cachedBytes)?.let { HdrAndScientificImageDecoder.decode(it, targetPx, ext) }
+            "asc", "diz", "nfo", "ansi" ->
+                readBytesForCustomDecoder(uri, cachedBytes)?.let { MetafileAndVectorImageDecoder.decodeAnsiArt(it, targetPx) }
             "wmf", "wmz", "ps", "eps", "ept", "ans" ->
                 readBytesForCustomDecoder(uri, cachedBytes)?.let { MetafileAndVectorImageDecoder.decode(it, targetPx, ext) }
             else -> null

@@ -117,3 +117,10 @@ power-of-two sampling and aspect-preserving thumbnail sizing. It exposes origina
 pixel dimensions separately from the owned `BitmapFrame`; use `takeBitmap()` to
 transfer pixels to a host cache. Cache naming, freshness, provenance checks and
 publication remain host policy. PNG output uses `ImageEncoding.png`.
+
+`CanvasFonts.cp437(context)` exposes a real fixed-cell typeface for selectable DOS
+text, generated from the existing bitmap glyph table and matching shade geometry.
+Regenerate with `python3 scripts/generate-cp437-typeface.py` (fonttools). The source
+provenance covers public-domain font8x8 plus project-licensed supplemental drawings;
+no proprietary ROM/font is imported. DOS `.asc`/`.diz`/`.nfo`/`.ansi` icon previews
+use the existing ANSI bitmap renderer; document viewing remains a host/Scribe job.
