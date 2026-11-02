@@ -52,6 +52,59 @@ class ThumbnailDecoder(
             uri.scheme == "android.resource" ||
             (uri.scheme == "file" && !uri.path.isNullOrEmpty())
 
+    /** First terminal page, read with a strict prefix bound; works with opaque content URIs. */
+    fun decodeTextPreview(uri: Uri, targetPx: Int, dosText: Boolean = false): Bitmap? {
+        return try {
+            require(targetPx > 0)
+            val bytes = openStream(uri)?.use { input ->
+                val out = ByteArrayOutputStream()
+                val buffer = ByteArray(4096)
+                while (out.size() < 16 * 1024) {
+                    val count = input.read(buffer, 0, minOf(buffer.size, 16 * 1024 - out.size()))
+                    if (count < 0) break
+                    if (count == 0) break
+                    out.write(buffer, 0, count)
+                }
+                out.toByteArray()
+            } ?: return null
+            if (bytes.isEmpty()) return null
+            val utf8 = Charsets.UTF_8.newDecoder()
+                .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+            val validUtf8 = !utf8.decode(ByteBuffer.wrap(bytes), java.nio.CharBuffer.allocate(bytes.size + 1), false).isError
+            val raw = String(bytes, Charsets.ISO_8859_1)
+            val utf16 = bytes.size >= 2 && ((bytes[0] == 0xff.toByte() && bytes[1] == 0xfe.toByte()) ||
+                (bytes[0] == 0xfe.toByte() && bytes[1] == 0xff.toByte()))
+            val unicodeText = validUtf8 && bytes.any { it.toInt() and 128 != 0 }
+            if (!utf16 && !unicodeText && (dosText || !validUtf8 || raw.contains("\u001b["))) {
+                MetafileAndVectorImageDecoder.decodeAnsiArt(bytes, targetPx, 25)
+            } else {
+                if (!utf16 && bytes.any { it == 0.toByte() }) return null
+                val decoded = String(bytes, if (utf16) Charsets.UTF_16 else Charsets.UTF_8).removePrefix("\uFEFF")
+                val bitmap = Bitmap.createBitmap(640, 400, Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bitmap)
+                canvas.drawColor(0xff141714.toInt())
+                val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    color = 0xffdddddd.toInt()
+                    typeface = android.graphics.Typeface.MONOSPACE
+                    textSize = 13f
+                }
+                var row = 0
+                for (line in decoded.replace("\r\n", "\n").replace('\r', '\n').lineSequence()) {
+                    val expanded = line.replace("\t", "    ")
+                    for (part in expanded.chunked(80).ifEmpty { listOf("") }) {
+                        canvas.drawText(part, 0f, row * 16f - paint.fontMetrics.ascent, paint)
+                        row++
+                        if (row == 25) break
+                    }
+                    if (row == 25) break
+                }
+                val scale = targetPx / 640f
+                Bitmap.createScaledBitmap(bitmap, targetPx, (400 * scale).roundToInt().coerceAtLeast(1), true)
+                    .also { if (it !== bitmap) bitmap.recycle() }
+            }
+        } catch (_: Exception) { null }
+    }
+
     private fun extensionOf(uri: Uri): String {
         val rawPath = if (uri.scheme == "archive") {
             uri.getQueryParameter("path")?.takeIf { it.isNotEmpty() } ?: uri.lastPathSegment

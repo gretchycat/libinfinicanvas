@@ -369,7 +369,7 @@ object MetafileAndVectorImageDecoder {
         return sample.contains("\u001b[")
     }
 
-    fun decodeAnsiArt(bytes: ByteArray, targetPx: Int): Bitmap? {
+    fun decodeAnsiArt(bytes: ByteArray, targetPx: Int, previewRows: Int = 500): Bitmap? {
         var contentLen = bytes.size
         var cols = 80
         var rowsHint = 0
@@ -409,7 +409,7 @@ object MetafileAndVectorImageDecoder {
 
         data class Cell(val ch: Int, val fg: Int, val bg: Int)
 
-        val maxRows = (rowsHint.takeIf { it > 0 } ?: 100).coerceIn(25, 500)
+        val maxRows = (rowsHint.takeIf { it > 0 } ?: 100).coerceIn(25, previewRows.coerceIn(25, 500))
         val grid = Array(maxRows) { Array(cols) { Cell(0x20, vga16[7], vga16[0]) } }
 
         var curX = 0

@@ -124,3 +124,8 @@ Regenerate with `python3 scripts/generate-cp437-typeface.py` (fonttools). The so
 provenance covers public-domain font8x8 plus project-licensed supplemental drawings;
 no proprietary ROM/font is imported. DOS `.asc`/`.diz`/`.nfo`/`.ansi` icon previews
 use the existing ANSI bitmap renderer; document viewing remains a host/Scribe job.
+
+Text icon previews can use `ThumbnailDecoder.decodeTextPreview(uri, targetPx, dosText)`
+without a filename-bearing URI. Reads are bounded to a 16 KiB prefix and the
+preview shows at most the first 25 rows; ANSI/CP437 uses terminal glyphs, Unicode
+text uses native monospace rendering. This does not change document routing.
