@@ -135,8 +135,24 @@ class ThumbnailDecoder(
     private fun readBytesForCustomDecoder(uri: Uri, cachedBytes: ByteArray?): ByteArray? =
         cachedBytes ?: readStreamBytes(uri)
 
+    private fun ripBytes(uri:Uri,cached:ByteArray?):ByteArray? {
+        if(cached!=null)return cached.takeIf {it.size<=RipScriptDecoder.MAX_BYTES}
+        return openStream(uri)?.use {input ->
+            val out=ByteArrayOutputStream();val buffer=ByteArray(8192)
+            while(true) {
+                if(Thread.currentThread().isInterrupted)return null
+                val count=input.read(buffer,0,minOf(buffer.size,RipScriptDecoder.MAX_BYTES+1-out.size()))
+                if(count<0)break
+                if(count==0 || out.size()+count>RipScriptDecoder.MAX_BYTES)return null
+                out.write(buffer,0,count)
+            }
+            out.toByteArray()
+        }
+    }
+
     private fun decodeCustomFormat(ext: String, uri: Uri, targetPx: Int, cachedBytes: ByteArray?): Bitmap? {
         return when (ext) {
+            "rip" -> ripBytes(uri,cachedBytes)?.let {RipScriptDecoder.decode(it,targetPx)?.bitmap}
             "svg", "svgz" -> decodeSvg(uri, targetPx, cachedBytes)
             "jxl" -> decodeJxl(uri, targetPx, cachedBytes)
             "jp2", "j2k", "jpf", "jpx", "j2c" -> readBytesForCustomDecoder(uri, cachedBytes)?.let { Jpeg2000Decoder.decode(it, targetPx) }
@@ -169,7 +185,9 @@ class ThumbnailDecoder(
 
     /** A known association can supply the renderer hint even when a content URI has no suffix. */
     fun decode(uri: Uri, targetPx: Int, extensionHint: String?): Bitmap? = try {
-        val cachedBytes = if (!isDirectUri(uri)) readStreamBytes(uri) ?: return null else null
+        val cachedBytes = if (!isDirectUri(uri)) {
+            (if(extensionHint=="rip" || extensionOf(uri)=="rip")ripBytes(uri,null) else readStreamBytes(uri)) ?: return null
+        } else null
         // Reuse the bounded prefix already loaded for stream-backed sources.
         // Direct Android handles retain platform detection; never reopen a possibly
         // one-shot content source merely to sniff its type.
@@ -177,7 +195,8 @@ class ThumbnailDecoder(
         decodeCustomFormat(ext, uri, targetPx, cachedBytes) ?: run {
             decodePlatform(uri, targetPx, cachedBytes) ?: run {
                 val bytes = readBytesForCustomDecoder(uri, cachedBytes) ?: return@run null
-                decodeSvg(uri, targetPx, bytes)
+                (if(ImageSignatures.extension(bytes)=="rip")RipScriptDecoder.decode(bytes,targetPx)?.bitmap else null)
+                    ?: decodeSvg(uri, targetPx, bytes)
                     ?: decodeJxl(uri, targetPx, bytes)
                     ?: Jpeg2000Decoder.decode(bytes, targetPx)
                     ?: SimpleLosslessImageDecoder.decode(bytes, targetPx)
@@ -199,9 +218,19 @@ class ThumbnailDecoder(
     }
 
     /** Full viewer decode including its original bounds/sample fallback; host retains bitmap ownership. */
-    fun decodeViewerFrame(uri: Uri, targetPx: Int): BitmapFrame? {
+    fun decodeViewerFrame(uri: Uri, targetPx: Int): BitmapFrame? = decodeViewerFrame(uri,targetPx,null)
+
+    fun decodeViewerFrame(uri:Uri,targetPx:Int,extensionHint:String?):BitmapFrame? =
+        decodeViewerFrame(uri,targetPx,extensionHint,RipScriptDecoder.Mode.EGA)
+
+    fun decodeViewerFrame(uri:Uri,targetPx:Int,extensionHint:String?,ripMode:RipScriptDecoder.Mode):BitmapFrame? {
         require(targetPx > 0)
-        val bitmap = decode(uri, targetPx) ?: openStream(uri)?.use { bounds ->
+        if(extensionHint=="rip" || extensionOf(uri)=="rip") {
+            val image=runCatching {ripBytes(uri,null)?.let {RipScriptDecoder.decode(it,targetPx,ripMode)}}.getOrNull() ?: return null
+            return BitmapFrame(image.bitmap,provenance=io.github.gretchycat.infinistream.Provenance(
+                source=uri.toString(),transformations=listOf("image.decode.ripscrip")),warnings=image.warnings)
+        }
+        val bitmap = decode(uri, targetPx,extensionHint) ?: openStream(uri)?.use { bounds ->
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeStream(bounds, null, options)
             options.inSampleSize = ImageDecodeUtils.sampleSize(options.outWidth, options.outHeight, targetPx, targetPx)

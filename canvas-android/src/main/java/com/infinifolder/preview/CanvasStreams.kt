@@ -49,15 +49,19 @@ object CanvasStreams {
     }
 
     /** Full viewer route retains the existing native-URI fast path, sampling and bounds fallback. */
-    fun decodeViewer(resolver: ContentResolver, resource: SourceResource, uri: Uri, targetPixels: Int): BitmapFrame? {
+    fun decodeViewer(resolver: ContentResolver, resource: SourceResource, uri: Uri, targetPixels: Int): BitmapFrame? =
+        decodeViewer(resolver,resource,uri,targetPixels,RipScriptDecoder.Mode.EGA)
+
+    fun decodeViewer(resolver:ContentResolver,resource:SourceResource,uri:Uri,targetPixels:Int,ripMode:RipScriptDecoder.Mode):BitmapFrame? {
         val input = resource.metadata
         val decoder = ThumbnailDecoder(resolver) { resource.open().asInputStream() }
         // A URI is only an optimization hint; it must never substitute unrelated/transformed bytes.
         val decodeUri = if (canUseNativeUri(input, uri.toString())) uri else
             Uri.Builder().scheme("infinistream").authority("image").appendPath(input.name ?: uri.lastPathSegment ?: "image").build()
-        val frame = decoder.decodeViewerFrame(decodeUri, targetPixels) ?: return null
+        val hint=if(input.content.mimeType=="image/x-rip" || input.name?.endsWith(".rip",true)==true)"rip" else null
+        val frame = decoder.decodeViewerFrame(decodeUri, targetPixels,hint,ripMode) ?: return null
         return BitmapFrame(frame.bitmap, provenance = input.provenance.copy(
-            transformations = input.provenance.transformations + "image.decode"), warnings = input.warnings)
+            transformations = input.provenance.transformations + frame.metadata.provenance.transformations), warnings = input.warnings+frame.metadata.warnings)
     }
 
     internal fun canUseNativeUri(input: StreamMetadata, uri: String): Boolean =

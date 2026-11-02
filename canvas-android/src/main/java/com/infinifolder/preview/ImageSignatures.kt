@@ -17,6 +17,8 @@ object ImageSignatures {
             starts(255, 79, 255, 81) -> "j2k"
             starts(0, 0, 0, 12, 74, 88, 76, 32, 13, 10, 135, 10) -> "jxl"
             text(0, "8BPS") && bytes.size >= 6 && bytes[4] == 0.toByte() && bytes[5].toInt() in 1..2 -> if (bytes[5].toInt() == 1) "psd" else "psb"
+            Regex("(?m)^!\\|(?:\\*|c[0-9A-Z]{1,2}(?:\\||$)|[LRB][0-9A-Z]{8}(?:\\||$))").containsMatchIn(
+                String(bytes,0,minOf(bytes.size,4096),Charsets.ISO_8859_1)) -> "rip"
             else -> null
         }
     }

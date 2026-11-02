@@ -138,3 +138,13 @@ use Android font fallback within the icon cell. CP437 input remains supported.
 authoritative renderer hint for opaque provider URIs or custom associations.
 Recognized byte signatures take priority. The original two-argument overload
 remains available; MIME/icon policy stays in the host.
+
+## RIPscrip graphics
+
+RipScriptDecoder renders a bounded subset of RIPscrip 1.54 static graphics. EGA
+simulation (640×350 indexed colour, aspect-corrected presentation) is the default;
+an optional high-resolution mode replays geometry at up to 4× resolution. The
+shared thumbnail/full-viewer decoder routes `.rip` sources and exposes rendering
+warnings for unsupported commands/font substitutions. It never executes BBS
+commands or loads external icon/scene files. See the host's docs/ripscrip-graphics.md
+for supported primitives, limits and unverified device acceptance.
