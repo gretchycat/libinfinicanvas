@@ -34,9 +34,13 @@ for code, pattern in enumerate(glyphs):
     shapes[name] = pen.glyph()
 fb.setupCharacterMap(chars)
 fb.setupGlyf(shapes)
-fb.setupHorizontalMetrics({name: (512,0) for name in names})
+# TrueType places each outline using its left bearing, not xMin alone.
+# Preserve the bitmap's blank left columns (notably the right-half block).
+for glyph in shapes.values():
+    glyph.recalcBounds(fb.font['glyf'])
+fb.setupHorizontalMetrics({name: (512, getattr(shapes[name], 'xMin', 0)) for name in names})
 fb.setupHorizontalHeader(ascent=1024, descent=0, lineGap=0)
-fb.setupNameTable({'familyName':'Infini CP437', 'styleName':'Regular', 'uniqueFontIdentifier':'InfiniCP437-PublicDomain-1', 'fullName':'Infini CP437 Regular', 'psName':'InfiniCP437-Regular', 'version':'Version 1.0', 'copyright':'font8x8: public domain; supplementary glyphs: project license. See font8x8 provenance.'})
+fb.setupNameTable({'familyName':'Infini CP437', 'styleName':'Regular', 'uniqueFontIdentifier':'InfiniCP437-2', 'fullName':'Infini CP437 Regular', 'psName':'InfiniCP437-Regular', 'version':'Version 2.0', 'copyright':'font8x8: public domain; supplementary glyphs: project license. See font8x8 provenance.'})
 fb.setupOS2(sTypoAscender=1024,sTypoDescender=0,sTypoLineGap=0,usWinAscent=1024,usWinDescent=0)
 fb.setupPost(isFixedPitch=1)
 # Stable artifact: seconds since 1904-01-01, fixed at 2026-01-01.
