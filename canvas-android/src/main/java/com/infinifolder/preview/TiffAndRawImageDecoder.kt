@@ -409,14 +409,17 @@ object TiffAndRawImageDecoder {
     /**
      * Decodes MSB-first TIFF LZW compressed strips (variable code width 9..12 bits, Clear=256, EOI=257).
      */
-    private fun decodeTiffLzw(src: ByteArray, offset: Int, length: Int, expectedSize: Int): ByteArray {
-        val out = ByteArrayOutputStream(expectedSize.coerceAtLeast(1024))
+    internal fun decodeTiffLzw(src: ByteArray, offset: Int, length: Int, expectedSize: Int, requireEnd: Boolean = false): ByteArray {
+        val out = ByteArrayOutputStream(expectedSize.coerceIn(1024, 64 * 1024))
         val limit = (offset + length).coerceAtMost(src.size)
         var bitPos = 0
         val totalBits = (limit - offset) * 8
 
         fun nextCode(codeBits: Int): Int {
-            if (bitPos + codeBits > totalBits) return 257
+            if (bitPos + codeBits > totalBits) {
+                require(!requireEnd) { "Incomplete TIFF-style LZW stream" }
+                return 257
+            }
             var acc = 0
             for (i in 0 until 3) {
                 val byteIdx = offset + (bitPos ushr 3) + i
@@ -434,16 +437,19 @@ object TiffAndRawImageDecoder {
         var nextEntry = 258
         var codeSize = 9
         var oldCode = -1
+        var ended = false
 
         while (out.size() < expectedSize) {
+            if (Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException("LZW decoding cancelled")
             val code = nextCode(codeSize)
-            if (code == 257) break // EOI
+            if (code == 257) { ended = true; break } // EOI
             if (code == 256) { // Clear
                 for (i in 258 until 4096) table[i] = null
                 nextEntry = 258
                 codeSize = 9
                 oldCode = nextCode(codeSize)
-                if (oldCode == 257 || oldCode !in 0..255) break
+                if (oldCode == 257) { ended = true; break }
+                if (oldCode !in 0..255) break
                 val first = table[oldCode] ?: break
                 out.write(first)
             } else {
@@ -475,6 +481,7 @@ object TiffAndRawImageDecoder {
                 oldCode = code
             }
         }
+        require(!requireEnd || ended) { "Incomplete or oversized TIFF-style LZW stream" }
         return out.toByteArray()
     }
 }
