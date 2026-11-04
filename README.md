@@ -60,6 +60,16 @@ confirmed the host playback/control follow-up on November 4, 2026; individual
 format/lifecycle cases remain separately unverified. IFF cycling was already
 confirmed. These later recovery/interactivity fixes still need device acceptance.
 
+## FLIC identity and routing
+
+`FlicDecoder.mimeTypes` owns the provider MIME aliases for FLI/FLC/FLIC across
+image, video and application categories. The Canvas handler advertises these
+exact aliases so an installed image viewer can take precedence over a generic
+video handler. Extension matching and AF11/AF12 decoding remain unchanged. Hosts
+reuse this metadata rather than maintaining another alias list. The alias repair
+passed main/combined-host compilation; playback after this repair still needs a
+device check. Earlier animation acceptance and decoder limitations remain above.
+
 ## Image metadata
 
 `ImageMetadata.read(ByteSource)` runs the registered `canvas.android.exif` pull

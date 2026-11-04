@@ -77,7 +77,7 @@ private class ByteImageHandler(id:String,extensions:Set<String>,signatures:List<
 
 private class BuiltinImageHandler : ImageCapabilityHandler {
     override val descriptor=HandlerDescriptor("canvas.builtin","canvas","Canvas image decoders",
-        listOf(FormatSupport(setOf("image/*","video/x-fli","video/x-mng"),CanvasFormats.builtInExtensions,
+        listOf(FormatSupport(setOf("image/*","video/x-mng") + FlicDecoder.mimeTypes,CanvasFormats.builtInExtensions,
             magic=listOf(MagicSignature("89504e470d0a1a0a"),MagicSignature("8a4d4e470d0a1a0a"),
                 MagicSignature("474946383761"),MagicSignature("474946383961")))),
         setOf(Operations.DECODE,Operations.THUMBNAIL),metadata=setOf("width","height","pixelFormat","colorSpace","warnings"),

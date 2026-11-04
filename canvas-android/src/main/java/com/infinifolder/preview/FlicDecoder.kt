@@ -7,6 +7,12 @@ import java.io.InterruptedIOException
 /** Original implementation of the standard indexed Autodesk Animator FLI/FLC formats.
  * Format reference: https://www.compuphase.com/flic.htm (no decoder source copied). */
 object FlicDecoder {
+    /** Providers use both image/video categories and several historical FLIC names. */
+    val mimeTypes: Set<String> = setOf(
+        "video/x-fli", "video/x-flc", "video/x-flic", "video/fli", "video/flc", "video/flic",
+        "image/x-fli", "image/x-flc", "image/x-flic", "image/fli", "image/flc", "image/flic",
+        "application/x-fli", "application/x-flc", "application/x-flic"
+    )
     private const val MAX_PIXELS=4*1024*1024
     private const val MAX_FRAMES=10000
     data class Decoded(val bitmap:Bitmap,val animation:BitmapAnimation,val warnings:List<String>)
