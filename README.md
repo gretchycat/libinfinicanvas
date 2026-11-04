@@ -20,6 +20,44 @@ Canvas owns ThumbnailDecoder, Android bitmap/vector/platform adapters and the ex
 
 The viewer-source tests include three checks that native URI hints must match the original untransformed resource. The containing app passes its expanded regression gate; actual image-viewer rendering/interaction remains handset acceptance.
 
+## IFF palette animation
+
+The full-viewer decoder attaches an optional `BitmapFrame.colorCycling` renderer
+for indexed ILBM/PBM files with CRNG, CCRT or DPaint IV DRNG ranges. It retains
+decoded indices from the existing BODY decoder and produces elapsed-time palette
+frames without retaining/reopening an input stream. HAM held-color decoding is
+shared with the still-image path, and EHB colors follow the cycled base palette.
+The host supplies a reusable ARGB buffer and owns scheduling/bitmap publication.
+Cycling is limited to four megapixels and 256 active ranges; unsupported ranges
+or scanline palettes report warnings and retain the still preview. Thumbnails
+remain static. The owner confirmed basic playback in the host image viewer on
+November 4, 2026; individual format variants and lifecycle checks remain pending.
+
+## Image animation
+
+`BitmapFrame.animation` optionally exposes a single-worker `BitmapAnimation`
+renderer; `animationDrawable` optionally holds an Android native animated
+drawable. Existing constructors and `colorCycling` remain compatible. The host
+owns lifecycle/scheduling and retains a still bitmap for editing/export.
+Standard 8-bit FLI/FLC, APNG composition and PNG-based MNG (including stored PNG
+objects and SHOW/grouped frames) are decoded
+in Canvas. GIF/WebP use Android's native animation on API 28+, with a legacy GIF
+fallback on API 26–27. HEIF/AVIF only animate where the platform exposes an
+animated drawable. Custom animations retain bounded in-memory sources and decoded
+state, not an unbounded list of rendered full frames. `durationNanos` and bounded
+catch-up status support the host's timeline/seeking; native GIF/WebP duration is
+container timing for a read-only progress display. `InteractiveBitmapAnimation`
+adds worker-owned named states and normalized pointer events for dynamic MNG.
+Rectangular/object/index masks use the existing Android PNG codec; indexed
+samples are recovered with an identity palette rather than a duplicated PNG
+decoder. FLIC recovery derives missing geometry from complete BRUN rows,
+validates bounded frame data, and reports fallback timing without rewriting the
+source. `ThumbnailDecoder.CONTENT_REVISION` participates in host icon cache keys.
+The owner
+confirmed the host playback/control follow-up on November 4, 2026; individual
+format/lifecycle cases remain separately unverified. IFF cycling was already
+confirmed. These later recovery/interactivity fixes still need device acceptance.
+
 ## Image metadata
 
 `ImageMetadata.read(ByteSource)` runs the registered `canvas.android.exif` pull

@@ -97,27 +97,33 @@ object RetroImageDecoder {
     // =========================================================================
     // 1. Amiga IFF / ILBM / PBM
     // =========================================================================
-    fun decodeAmigaIlbm(bytes: ByteArray, targetPx: Int): Bitmap? {
+    fun decodeAmigaIlbm(bytes: ByteArray, targetPx: Int): Bitmap? = decodeAmigaIlbm(bytes,targetPx,null)
+
+    internal fun decodeAmigaIlbm(bytes:ByteArray,targetPx:Int,capture:((IffColorCycling.Indexed)->Unit)?):Bitmap? {
         if (bytes.size < 12 || String(bytes, 0, 4, StandardCharsets.US_ASCII) != "FORM") return null
         val formType = String(bytes, 8, 4, StandardCharsets.US_ASCII)
         if (formType != "ILBM" && formType != "PBM ") return null
+        val formEnd=minOf(bytes.size.toLong(),u32be(bytes,4)+8).toInt()
+        if(formEnd<12)return null
 
         var width = 0
         var height = 0
         var nPlanes = 0
         var masking = 0
         var compression = 0
+        var transparentColor=0
+        var paletteSize=256
         var camgMode = 0L
         var palette = IntArray(256) { i -> packArgb(255, i, i, i) }
         var bodyOffset = -1
         var bodyLen = 0
 
         var pos = 12
-        while (pos + 8 <= bytes.size) {
+        while (pos + 8 <= formEnd) {
             val tag = String(bytes, pos, 4, StandardCharsets.US_ASCII)
             val len = u32be(bytes, pos + 4).toInt()
             val dataStart = pos + 8
-            if (len < 0 || dataStart + len > bytes.size) break
+            if (len < 0 || len > formEnd-dataStart) break
             when (tag) {
                 "BMHD" -> {
                     if (len >= 20) {
@@ -126,10 +132,12 @@ object RetroImageDecoder {
                         nPlanes = u8(bytes, dataStart + 8)
                         masking = u8(bytes, dataStart + 9)
                         compression = u8(bytes, dataStart + 10)
+                        transparentColor=u16be(bytes,dataStart+12)
                     }
                 }
                 "CMAP" -> {
                     val count = (len / 3).coerceAtMost(256)
+                    paletteSize=count
                     for (i in 0 until count) {
                         val r = u8(bytes, dataStart + i * 3)
                         val g = u8(bytes, dataStart + i * 3 + 1)
@@ -162,6 +170,14 @@ object RetroImageDecoder {
         }
 
         val isHam = (camgMode and 0x800L) != 0L && (nPlanes == 6 || nPlanes == 8)
+        val isEhb=nPlanes==6&&(camgMode and 0x80L)!=0L&&!isHam
+        val captured=if(capture!=null&&nPlanes<=8&&width.toLong()*height<=IffColorCycling.MAX_ANIMATION_PIXELS&&
+            compression in 0..1&&masking in 0..2&&!(formType=="PBM "&&masking==1))ByteArray(width*height)else null
+        val opacity=if(captured!=null&&masking!=0)ByteArray(width*height)else null
+        fun finishCapture(validBody:Boolean){
+            if(captured!=null&&validBody)capture?.invoke(IffColorCycling.Indexed(width,height,palette.copyOf(),
+                paletteSize,captured,opacity,nPlanes,isHam,isEhb))
+        }
         val totalPlanesInFile = nPlanes + (if (masking == 1) 1 else 0)
         val pixels = IntArray(width * height)
 
@@ -175,9 +191,12 @@ object RetroImageDecoder {
             for (y in 0 until height) {
                 for (x in 0 until width) {
                     val idx = raw.getOrElse(y * rowBytes + x) { 0 }.toInt() and 0xFF
+                    captured?.set(y*width+x,idx.toByte())
+                    opacity?.set(y*width+x,if(idx==transparentColor)0 else 1)
                     pixels[y * width + x] = palette[idx]
                 }
             }
+            if(captured!=null)finishCapture(if(compression==1)validIlbmBody(bytes,bodyOffset,bodyLen,rowBytes*height)else bodyLen>=rowBytes*height)
             return createScaledBitmap(pixels, width, height, targetPx)
         }
 
@@ -190,10 +209,9 @@ object RetroImageDecoder {
         }
 
         for (y in 0 until height) {
+            if(Thread.currentThread().isInterrupted)throw java.io.InterruptedIOException("IFF decoding cancelled")
             val scanlineBase = y * totalPlanesInFile * planeRowBytes
-            var holdR = (palette[0] ushr 16) and 0xFF
-            var holdG = (palette[0] ushr 8) and 0xFF
-            var holdB = palette[0] and 0xFF
+            var held=palette[0]
 
             for (x in 0 until width) {
                 val byteInRow = x ushr 3
@@ -205,6 +223,11 @@ object RetroImageDecoder {
                     val bit = (b ushr bitShift) and 1
                     value = value or (bit shl p)
                 }
+                captured?.set(y*width+x,value.toByte())
+                opacity?.set(y*width+x,if(masking==2){if(value==transparentColor)0 else 1}else {
+                    val mask=scanlineBase+nPlanes*planeRowBytes+byteInRow
+                    ((bodyBytes.getOrElse(mask){0}.toInt() ushr bitShift)and 1).toByte()
+                })
 
                 val color = when {
                     nPlanes >= 24 -> {
@@ -215,22 +238,8 @@ object RetroImageDecoder {
                         packArgb(a, r, g, b)
                     }
                     isHam -> {
-                        val dataBits = nPlanes - 2
-                        val cmd = (value ushr dataBits) and 0x03
-                        val data = value and ((1 shl dataBits) - 1)
-                        val scaled = if (dataBits == 4) (data * 17) else ((data shl 2) or (data ushr 4))
-                        when (cmd) {
-                            0 -> {
-                                val c = palette[data.coerceIn(0, 255)]
-                                holdR = (c ushr 16) and 0xFF
-                                holdG = (c ushr 8) and 0xFF
-                                holdB = c and 0xFF
-                            }
-                            1 -> holdB = scaled
-                            2 -> holdR = scaled
-                            3 -> holdG = scaled
-                        }
-                        packArgb(255, holdR, holdG, holdB)
+                        held=IffColorCycling.hamColor(value,nPlanes,palette,held)
+                        held
                     }
                     else -> palette[value and 0xFF]
                 }
@@ -238,7 +247,18 @@ object RetroImageDecoder {
             }
         }
 
+        if(captured!=null)finishCapture(if(compression==1)validIlbmBody(bytes,bodyOffset,bodyLen,totalScanlineBytes)else bodyLen>=totalScanlineBytes)
         return createScaledBitmap(pixels, width, height, targetPx)
+    }
+
+    private fun validIlbmBody(bytes:ByteArray,start:Int,length:Int,expected:Int):Boolean {
+        var at=start;var produced=0L;val end=start+length
+        while(at<end&&produced<expected){
+            val code=bytes[at++].toInt()
+            if(code>=0){val count=code+1;if(count>end-at)return false;at+=count;produced+=count}
+            else if(code!= -128){if(at>=end)return false;at++;produced+=1-code}
+        }
+        return produced==expected.toLong()
     }
 
     // =========================================================================

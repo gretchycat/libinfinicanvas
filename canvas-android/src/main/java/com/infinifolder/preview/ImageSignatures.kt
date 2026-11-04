@@ -7,6 +7,10 @@ object ImageSignatures {
         fun text(offset: Int, value: String) = bytes.size >= offset + value.length && value.indices.all { bytes[offset + it].toInt() and 255 == value[it].code }
         return when {
             starts(137, 80, 78, 71, 13, 10, 26, 10) -> "png"
+            starts(138, 77, 78, 71, 13, 10, 26, 10) -> "mng"
+            bytes.size>=128 && (bytes[4].toInt() and 255) in setOf(0x11,0x12) && (bytes[5].toInt() and 255)==0xaf -> "fli"
+            text(4,"ftyp") && (text(8,"avif") || text(8,"avis")) -> "avif"
+            text(4,"ftyp") && (text(8,"heic") || text(8,"heix") || text(8,"hevc") || text(8,"hevx") || text(8,"mif1") || text(8,"msf1")) -> "heif"
             starts(255, 216, 255) && bytes.size >= 4 && (bytes[3].toInt() and 255) in 0xc0..0xfe -> "jpg"
             text(0, "GIF87a") || text(0, "GIF89a") -> "gif"
             text(0, "RIFF") && text(8, "WEBP") -> "webp"

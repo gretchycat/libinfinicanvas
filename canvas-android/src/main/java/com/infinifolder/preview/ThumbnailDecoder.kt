@@ -161,6 +161,8 @@ class ThumbnailDecoder(
 
     private fun decodeCustomFormat(ext: String, uri: Uri, targetPx: Int, cachedBytes: ByteArray?): Bitmap? {
         return when (ext) {
+            "fli", "flc", "flic" -> readBytesForCustomDecoder(uri,cachedBytes)?.let{FlicDecoder.decode(it,targetPx,false)?.bitmap}
+            "mng" -> readBytesForCustomDecoder(uri,cachedBytes)?.let{PngAnimationDecoder.decode(it,targetPx)?.bitmap}
             "rip" -> ripBytes(uri,cachedBytes)?.let {RipScriptDecoder.decode(it,targetPx)?.bitmap}
             "svg", "svgz" -> decodeSvg(uri, targetPx, cachedBytes)
             "jxl" -> decodeJxl(uri, targetPx, cachedBytes)
@@ -205,6 +207,8 @@ class ThumbnailDecoder(
             decodePlatform(uri, targetPx, cachedBytes) ?: run {
                 val bytes = readBytesForCustomDecoder(uri, cachedBytes) ?: return@run null
                 (if(ImageSignatures.extension(bytes)=="rip")RipScriptDecoder.decode(bytes,targetPx)?.bitmap else null)
+                    ?: FlicDecoder.decode(bytes,targetPx,false)?.bitmap
+                    ?: (if(PngAnimationDecoder.isMng(bytes))PngAnimationDecoder.decode(bytes,targetPx)?.bitmap else null)
                     ?: decodeSvg(uri, targetPx, bytes)
                     ?: decodeJxl(uri, targetPx, bytes)
                     ?: Jpeg2000Decoder.decode(bytes, targetPx)
@@ -234,6 +238,23 @@ class ThumbnailDecoder(
 
     fun decodeViewerFrame(uri:Uri,targetPx:Int,extensionHint:String?,ripMode:RipScriptDecoder.Mode):BitmapFrame? {
         require(targetPx > 0)
+        val ext=extensionHint?.lowercase(java.util.Locale.ROOT)?:extensionOf(uri)
+        if(ext in setOf("fli","flc","flic","mng","png","apng","gif","webp","avif","avifs","heif","heic","heics","heifs")){
+            val bytes=readBytesForCustomDecoder(uri,null)?:return decode(uri,targetPx,ext)?.let{BitmapFrame(it)}
+            val frame=try{AnimatedImages.decode(bytes,targetPx,uri.toString())}catch(error:Exception){
+                if(error is java.io.InterruptedIOException)throw error
+                val still=decode(uri,targetPx,ext,bytes)
+                if(still==null)throw error
+                return BitmapFrame(still,warnings=listOf("Animation unavailable: ${error.message}"))
+            }
+            if(frame!=null)return frame
+            return decode(uri,targetPx,ext,bytes)?.let{BitmapFrame(it)}
+        }
+        if(extensionHint in setOf("iff","ilbm","lbm") || extensionOf(uri) in setOf("iff","ilbm","lbm")){
+            val image=readBytesForCustomDecoder(uri,null)?.let{IffColorCycling.decode(it,targetPx)}?:return null
+            return BitmapFrame(image.bitmap,provenance=io.github.gretchycat.infinistream.Provenance(
+                source=uri.toString(),transformations=listOf("image.decode.iff")),warnings=image.warnings).also{it.colorCycling=image.animation}
+        }
         if(extensionHint=="rip" || extensionOf(uri)=="rip") {
             val image=runCatching {ripBytes(uri,null)?.let {RipScriptDecoder.decode(it,targetPx,ripMode)}}.getOrNull() ?: return null
             return BitmapFrame(image.bitmap,provenance=io.github.gretchycat.infinistream.Provenance(
@@ -249,6 +270,10 @@ class ThumbnailDecoder(
         return bitmap?.let { BitmapFrame(it, provenance = io.github.gretchycat.infinistream.Provenance(
             source = uri.toString(), transformations = listOf("image.decode"))) }
     }
+
+    /** Reuse already-read animation bytes for still fallbacks and one-shot sources. */
+    private fun decode(uri:Uri,targetPx:Int,ext:String,bytes:ByteArray):Bitmap? =
+        try{decodeCustomFormat(ext,uri,targetPx,bytes)?:decodePlatform(uri,targetPx,bytes)}catch(_:Exception){null}
 
     private fun decodePlatform(uri: Uri, targetPx: Int, cachedBytes: ByteArray? = null): Bitmap? {
         if (cachedBytes != null) {
@@ -436,9 +461,11 @@ class ThumbnailDecoder(
         return rotated
     }
 
-    private companion object {
-        const val MAX_SIDE = 40_000
-        const val MAX_PIXELS = 160_000_000L
-        const val MAX_STREAM_BYTES = 32 * 1024 * 1024
+    companion object {
+        /** Hosts include decoder changes in persisted/generated thumbnail cache signatures. */
+        const val CONTENT_REVISION = "canvas-animation-2"
+        private const val MAX_SIDE = 40_000
+        private const val MAX_PIXELS = 160_000_000L
+        private const val MAX_STREAM_BYTES = 32 * 1024 * 1024
     }
 }

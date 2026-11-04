@@ -1,5 +1,20 @@
 # Source provenance
 
+November 4, 2026 animation additions (`BitmapAnimation`, `FlicDecoder`,
+`PngAnimationDecoder`, `AnimatedImages`) are original implementations. FLI/FLC
+format facts come from https://www.compuphase.com/flic.htm; APNG follows
+https://www.w3.org/TR/png-3/; the sequential MNG subset follows the PNG group's
+https://www.libpng.org/pub/mng/spec/mng-1.0-20010209-pdg.html. No third-party
+decoder source was copied. PNG decompression/filtering and GIF/WebP rendering
+use Android's existing codecs. IFF cycling retains the existing BODY decoder.
+
+Dynamic MNG wire-field facts (evNT events, masks, object IDs, palette index,
+named segment) were checked against the original libmng public header and chunk
+reader as mirrored in https://github.com/LuaDist/libmng. Those reference files
+were read outside the repository; no libmng source is bundled or copied into the
+new implementation. Pointer dispatch, bounded state composition and Android PNG
+identity-palette mask decoding are original code.
+
 Original implementations and history: [gretchycat/infinifolder at 9233495](https://github.com/gretchycat/infinifolder/tree/9233495). Existing codecs/renderers are moved without rewriting algorithms; package names and notices are retained for compatibility. VideoView input binding and time-formatting were extracted from VideoPlayerActivity; platform surface, controls, listeners and leases remain host-owned. New adapters describe Stream inputs/actual outputs. Original-code license selection is pending (LICENSE.md).
 
 | Original path | New path | SHA-256 before move |

@@ -9,6 +9,15 @@ import io.github.gretchycat.infinistream.*
 /** Bitmap remains a platform frame; metadata does not force a GPU/CPU byte roundtrip. */
 class BitmapFrame @JvmOverloads constructor(val bitmap: Bitmap, private val ownsBitmap: Boolean = false,
     provenance: Provenance = Provenance(), warnings: List<String> = emptyList()) : StreamHandle {
+    /** Optional decoded palette renderer; the existing bitmap constructor contract stays unchanged. */
+    var colorCycling:IffColorCycling.Animation?=null
+        internal set
+    var animation:BitmapAnimation?=null
+        internal set
+    var animationDrawable:android.graphics.drawable.Drawable?=null
+        internal set
+    var animationDurationNanos:Long=0
+        internal set
     override val metadata = StreamMetadata(ContentType(DataKind.IMAGE_FRAME, "image/x-android-bitmap", "android-bitmap"),
         finiteness = Finiteness.FINITE, ownership = if (ownsBitmap) Ownership.OWNED else Ownership.BORROWED,
         attributes = buildMap {
@@ -58,10 +67,21 @@ object CanvasStreams {
         // A URI is only an optimization hint; it must never substitute unrelated/transformed bytes.
         val decodeUri = if (canUseNativeUri(input, uri.toString())) uri else
             Uri.Builder().scheme("infinistream").authority("image").appendPath(input.name ?: uri.lastPathSegment ?: "image").build()
-        val hint=if(input.content.mimeType=="image/x-rip" || input.name?.endsWith(".rip",true)==true)"rip" else null
+        val hint=if(input.content.mimeType=="image/x-rip" || input.name?.endsWith(".rip",true)==true)"rip"
+            else if(input.content.mimeType in setOf("image/ilbm","image/x-ilbm","image/x-iff") ||
+                input.name?.substringAfterLast('.')?.lowercase() in setOf("iff","ilbm","lbm"))"iff"
+            else if(input.content.mimeType in setOf("video/x-fli","video/x-flc","video/fli","video/flc","image/fli","image/flc","image/x-fli","image/x-flc","image/x-flic","video/x-flic"))"fli"
+            else if(input.content.mimeType in setOf("image/png","image/apng"))"png"
+            else if(input.content.mimeType in setOf("video/x-mng","image/x-mng","image/mng","video/mng","application/x-mng"))"mng"
+            else if(input.content.mimeType=="image/gif")"gif"
+            else if(input.content.mimeType=="image/webp")"webp"
+            else if(input.content.mimeType=="image/avif")"avif"
+            else if(input.content.mimeType in setOf("image/heif","image/heic"))"heif"
+            else input.name?.substringAfterLast('.')?.lowercase()
         val frame = decoder.decodeViewerFrame(decodeUri, targetPixels,hint,ripMode) ?: return null
         return BitmapFrame(frame.bitmap, provenance = input.provenance.copy(
             transformations = input.provenance.transformations + frame.metadata.provenance.transformations), warnings = input.warnings+frame.metadata.warnings)
+            .also{it.colorCycling=frame.colorCycling;it.animation=frame.animation;it.animationDrawable=frame.animationDrawable;it.animationDurationNanos=frame.animationDurationNanos}
     }
 
     internal fun canUseNativeUri(input: StreamMetadata, uri: String): Boolean =
