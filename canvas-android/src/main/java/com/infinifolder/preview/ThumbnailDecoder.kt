@@ -159,7 +159,7 @@ class ThumbnailDecoder(
         }
     }
 
-    private fun decodeCustomFormat(ext: String, uri: Uri, targetPx: Int, cachedBytes: ByteArray?): Bitmap? {
+    internal fun decodeLegacyCustomFormat(ext: String, uri: Uri, targetPx: Int, cachedBytes: ByteArray?): Bitmap? {
         return when (ext) {
             "fli", "flc", "flic" -> readBytesForCustomDecoder(uri,cachedBytes)?.let{FlicDecoder.decode(it,targetPx,false)?.bitmap}
             "mng" -> readBytesForCustomDecoder(uri,cachedBytes)?.let{PngAnimationDecoder.decode(it,targetPx)?.bitmap}
@@ -191,11 +191,19 @@ class ThumbnailDecoder(
         }
     }
 
+    private fun decodeRegisteredFormat(ext: String, uri: Uri, targetPx: Int, cachedBytes: ByteArray?,mimeType:String?=null,operation:String=io.github.gretchycat.infinistream.Operations.THUMBNAIL): Bitmap? =
+        CanvasCapabilities.decode(ImageDecodeRequest(this, uri, targetPx, ext, cachedBytes,mimeType) { readBytesForCustomDecoder(uri, cachedBytes) },operation=operation)
+
     /** Returns a bitmap whose longer side is about [targetPx], or null if the image cannot be previewed. */
     fun decode(uri: Uri, targetPx: Int): Bitmap? = decode(uri,targetPx,null)
 
     /** A known association can supply the renderer hint even when a content URI has no suffix. */
-    fun decode(uri: Uri, targetPx: Int, extensionHint: String?): Bitmap? = try {
+    fun decode(uri:Uri,targetPx:Int,extensionHint:String?):Bitmap?=decode(uri,targetPx,extensionHint,null)
+    fun decode(uri:Uri,targetPx:Int,extensionHint:String?,mimeTypeHint:String?):Bitmap?=
+        decodeWithOperation(uri,targetPx,extensionHint,mimeTypeHint,io.github.gretchycat.infinistream.Operations.THUMBNAIL)
+    fun decodeImage(uri:Uri,targetPx:Int,extensionHint:String?,mimeTypeHint:String?):Bitmap?=
+        decodeWithOperation(uri,targetPx,extensionHint,mimeTypeHint,io.github.gretchycat.infinistream.Operations.DECODE)
+    private fun decodeWithOperation(uri:Uri,targetPx:Int,extensionHint:String?,mimeTypeHint:String?,operation:String):Bitmap? = try {
         val cachedBytes = if (!isDirectUri(uri)) {
             (if(extensionHint=="rip" || extensionOf(uri)=="rip")ripBytes(uri,null) else readStreamBytes(uri)) ?: return null
         } else null
@@ -203,7 +211,7 @@ class ThumbnailDecoder(
         // Direct Android handles retain platform detection; never reopen a possibly
         // one-shot content source merely to sniff its type.
         val ext = cachedBytes?.let(ImageSignatures::extension) ?: extensionHint?.lowercase(java.util.Locale.ROOT) ?: extensionOf(uri)
-        decodeCustomFormat(ext, uri, targetPx, cachedBytes) ?: run {
+        decodeRegisteredFormat(ext, uri, targetPx, cachedBytes,mimeTypeHint,operation) ?: run {
             decodePlatform(uri, targetPx, cachedBytes) ?: run {
                 val bytes = readBytesForCustomDecoder(uri, cachedBytes) ?: return@run null
                 (if(ImageSignatures.extension(bytes)=="rip")RipScriptDecoder.decode(bytes,targetPx)?.bitmap else null)
@@ -236,7 +244,14 @@ class ThumbnailDecoder(
     fun decodeViewerFrame(uri:Uri,targetPx:Int,extensionHint:String?):BitmapFrame? =
         decodeViewerFrame(uri,targetPx,extensionHint,RipScriptDecoder.Mode.EGA)
 
-    fun decodeViewerFrame(uri:Uri,targetPx:Int,extensionHint:String?,ripMode:RipScriptDecoder.Mode):BitmapFrame? {
+    fun decodeViewerFrame(uri:Uri,targetPx:Int,extensionHint:String?,ripMode:RipScriptDecoder.Mode):BitmapFrame?=
+        decodeViewerFrame(uri,targetPx,extensionHint,ripMode,null)
+    fun decodeViewerFrame(uri:Uri,targetPx:Int,extensionHint:String?,ripMode:RipScriptDecoder.Mode,mimeTypeHint:String?):BitmapFrame? {
+        val pluginExtension=extensionHint?:extensionOf(uri)
+        CanvasCapabilities.decode(ImageDecodeRequest(this,uri,targetPx,pluginExtension,null,mimeTypeHint) { readStreamBytes(uri) }, pluginsOnly=true,operation=io.github.gretchycat.infinistream.Operations.DECODE)?.let {
+            return BitmapFrame(it)
+        }
+
         require(targetPx > 0)
         val ext=extensionHint?.lowercase(java.util.Locale.ROOT)?:extensionOf(uri)
         if(ext in setOf("fli","flc","flic","mng","png","apng","gif","webp","avif","avifs","heif","heic","heics","heifs")){
@@ -273,9 +288,9 @@ class ThumbnailDecoder(
 
     /** Reuse already-read animation bytes for still fallbacks and one-shot sources. */
     private fun decode(uri:Uri,targetPx:Int,ext:String,bytes:ByteArray):Bitmap? =
-        try{decodeCustomFormat(ext,uri,targetPx,bytes)?:decodePlatform(uri,targetPx,bytes)}catch(_:Exception){null}
+        try{decodeRegisteredFormat(ext,uri,targetPx,bytes)?:decodePlatform(uri,targetPx,bytes)}catch(_:Exception){null}
 
-    private fun decodePlatform(uri: Uri, targetPx: Int, cachedBytes: ByteArray? = null): Bitmap? {
+    internal fun decodePlatform(uri: Uri, targetPx: Int, cachedBytes: ByteArray? = null): Bitmap? {
         if (cachedBytes != null) {
             return if (Build.VERSION.SDK_INT >= 28) {
                 try { decodeBytesWithImageDecoder(cachedBytes, targetPx) }

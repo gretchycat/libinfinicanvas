@@ -53,7 +53,7 @@ object CanvasStreams {
     fun decode(resolver: ContentResolver, resource: SourceResource, targetPixels: Int): BitmapFrame? {
         val uri = Uri.Builder().scheme("infinistream").authority("image").appendPath(resource.metadata.name ?: "image").build()
         val decoder = ThumbnailDecoder(resolver) { resource.open().asInputStream() }
-        return decoder.decode(uri, targetPixels)?.let { BitmapFrame(it,
+        return decoder.decodeImage(uri, targetPixels,resource.metadata.name?.substringAfterLast('.',""),resource.metadata.content.mimeType)?.let { BitmapFrame(it,
             provenance = resource.metadata.provenance.copy(transformations = resource.metadata.provenance.transformations + "image.decode"), warnings = resource.metadata.warnings) }
     }
 
@@ -78,7 +78,7 @@ object CanvasStreams {
             else if(input.content.mimeType=="image/avif")"avif"
             else if(input.content.mimeType in setOf("image/heif","image/heic"))"heif"
             else input.name?.substringAfterLast('.')?.lowercase()
-        val frame = decoder.decodeViewerFrame(decodeUri, targetPixels,hint,ripMode) ?: return null
+        val frame = decoder.decodeViewerFrame(decodeUri, targetPixels,hint,ripMode,input.content.mimeType) ?: return null
         return BitmapFrame(frame.bitmap, provenance = input.provenance.copy(
             transformations = input.provenance.transformations + frame.metadata.provenance.transformations), warnings = input.warnings+frame.metadata.warnings)
             .also{it.colorCycling=frame.colorCycling;it.animation=frame.animation;it.animationDrawable=frame.animationDrawable;it.animationDurationNanos=frame.animationDurationNanos}

@@ -38,13 +38,7 @@ object ImageTransforms {
     /** Borrow input; caller closes or explicitly takes the resulting pixels. No-op results may alias input. */
     @JvmStatic @JvmOverloads @Throws(IOException::class)
     fun apply(input: BitmapFrame, transform: ImageTransform, cancellation: CancellationToken = CancellationToken.NONE): BitmapFrame {
-        val registry = ProcessorRegistry(listOf(ProcessorRegistration(ImageTransformProcessor()) { values, _ ->
-            val metadata = values.getValue("image").single()
-            // Pixel geometry/config and alias ownership are determined by the actual Android result.
-            mapOf("image" to listOf(StreamMetadata(ContentType(DataKind.IMAGE_FRAME, format = "android-bitmap"),
-                finiteness = Finiteness.FINITE, provenance = metadata.provenance.copy(
-                    transformations = metadata.provenance.transformations + descriptor.id), warnings = metadata.warnings)))
-        }))
+        val registry = ProcessorRegistry(listOf(ImageTransformProcessor().registration()))
         // An edit is an explicit requested step. A frame-to-frame target alone would allow a zero-step route.
         registry.open(descriptor.id, mapOf("image" to listOf(input)),
             ProcessorOptions(options(transform), cancellation = cancellation)).use {
@@ -79,6 +73,13 @@ object ImageTransforms {
 
 class ImageTransformProcessor : StreamProcessor {
     override val descriptor get() = ImageTransforms.descriptor
+    fun registration()=ProcessorRegistration(this) { values, _ ->
+            val metadata = values.getValue("image").single()
+            // Pixel geometry/config and alias ownership are determined by the actual Android result.
+            mapOf("image" to listOf(StreamMetadata(ContentType(DataKind.IMAGE_FRAME, format = "android-bitmap"),
+                finiteness = Finiteness.FINITE, provenance = metadata.provenance.copy(
+                    transformations = metadata.provenance.transformations + descriptor.id), warnings = metadata.warnings)))
+    }
     override fun open(inputs: Map<String, List<StreamHandle>>, options: ProcessorOptions): ProcessorSession {
         if (options.mode != FlowMode.PULL) throw IOException("Image transforms require pull mode")
         val input = requireImageFrame(inputs, descriptor)

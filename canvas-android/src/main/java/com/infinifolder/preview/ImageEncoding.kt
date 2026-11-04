@@ -46,9 +46,7 @@ object ImageEncoding {
 
     @JvmStatic @JvmOverloads @Throws(IOException::class)
     fun png(input: BitmapFrame, cancellation: CancellationToken = CancellationToken.NONE): EncodedImage {
-        val registry = ProcessorRegistry(listOf(ProcessorRegistration(PngImageProcessor()) { inputs, _ ->
-            mapOf("encoded" to listOf(StreamMetadata(ContentType(DataKind.BYTES, "image/png", "png"), capabilities = setOf(Capability.READ))))
-        }))
+        val registry = ProcessorRegistry(listOf(PngImageProcessor().registration()))
         registry.open(descriptor.id, mapOf("image" to listOf(input)), ProcessorOptions(cancellation = cancellation)).use {
             return (it as EncodedImageSession).takeImage()
         }
@@ -57,6 +55,9 @@ object ImageEncoding {
 
 class PngImageProcessor : StreamProcessor {
     override val descriptor get() = ImageEncoding.descriptor
+    fun registration()=ProcessorRegistration(this) { inputs, _ ->
+            mapOf("encoded" to listOf(StreamMetadata(ContentType(DataKind.BYTES, "image/png", "png"), capabilities = setOf(Capability.READ))))
+    }
     override fun open(inputs: Map<String, List<StreamHandle>>, options: ProcessorOptions): ProcessorSession {
         if (options.mode != FlowMode.PULL || options.values.isNotEmpty()) throw IOException("Unsupported PNG mode/options")
         val input = requireImageFrame(inputs, descriptor)
