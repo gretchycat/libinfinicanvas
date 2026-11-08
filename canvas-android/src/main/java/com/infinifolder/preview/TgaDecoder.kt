@@ -12,6 +12,27 @@ import kotlin.math.roundToInt
  * Supports uncompressed and RLE true-color (24-bit RGB, 32-bit ARGB) and grayscale (8-bit).
  */
 object TgaDecoder {
+    /** Bounded format validation for sources that identify by extension and TGA header structure. */
+    fun identifies(bytes: ByteArray, resourceLength: Long? = null): Boolean {
+        if (bytes.size < 18) return false
+        val colorMapType = bytes[1].toInt() and 255
+        val imageType = bytes[2].toInt() and 255
+        val width = (bytes[12].toInt() and 255) or ((bytes[13].toInt() and 255) shl 8)
+        val height = (bytes[14].toInt() and 255) or ((bytes[15].toInt() and 255) shl 8)
+        val bits = bytes[16].toInt() and 255
+        val descriptor = bytes[17].toInt() and 255
+        if (colorMapType != 0 || imageType !in setOf(2, 3, 10, 11) || width !in 1..40000 || height !in 1..40000 ||
+            width.toLong() * height > 160_000_000L || (descriptor and 0xC0) != 0) return false
+        val grayscale = imageType == 3 || imageType == 11
+        if (grayscale && bits != 8 || !grayscale && bits !in setOf(24, 32)) return false
+        val dataOffset = 18L + (bytes[0].toInt() and 255)
+        if (resourceLength != null) {
+            if (dataOffset >= resourceLength) return false
+            if (imageType in setOf(2, 3) && dataOffset + width.toLong() * height * (bits / 8) > resourceLength) return false
+        }
+        return true
+    }
+
     fun decode(stream: InputStream, targetPx: Int): Bitmap? {
         val bytes = stream.readBytes()
         if (bytes.size < 18) return null

@@ -38,6 +38,6 @@ object CanvasFormats {
         // HDR, GPU textures, astronomy FITS, medical DICOM
         "hdr", "exr", "dds", "ktx", "fits", "fit", "fts", "dcm", "dicom",
         // Windows Metafiles, PostScript/EPS, and ANSI Art
-        "wmf", "wmz", "ps", "eps", "ept", "ans", "rip"
+        "wmf", "wmz", "ps", "eps", "ept", "ans", "ansi", "asc", "diz", "nfo", "rip"
     )
 }

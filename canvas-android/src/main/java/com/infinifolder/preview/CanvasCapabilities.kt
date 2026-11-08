@@ -69,9 +69,21 @@ private class ByteImageHandler(id:String,extensions:Set<String>,signatures:List<
         "tga" -> setOf("image/x-tga")
         else -> emptySet()
     },extensions=extensions,magic=signatures.map{MagicSignature(it)})),
-        setOf(Operations.DECODE,Operations.THUMBNAIL),metadata=setOf("width","height","pixels"),
+        setOf(Operations.IDENTIFY,Operations.DECODE,Operations.THUMBNAIL),metadata=setOf("width","height","pixels"),
         limitations=listOf("Bounded encoded bytes and pixel dimensions; Android Bitmap backend required for display"),priority=10)
     override fun availability()=bitmapAvailability()
+    override fun probe(context: CapabilityProbeContext): HandlerProbe {
+        if (context.resource.source == null) {
+            val score = descriptor.formats.maxOfOrNull { it.score(context.resource) } ?: 0
+            return HandlerProbe(if (score > 0) MatchConfidence.CANDIDATE else MatchConfidence.NONE, descriptor.operations)
+        }
+        val identity = ImageSignatures.identify(context.prefix(), context.resource.metadata.name,
+            context.resource.metadata.length) ?: return HandlerProbe(MatchConfidence.NONE, emptySet())
+        val supported = descriptor.formats.flatMap { it.mimeTypes }.any { it == identity.mimeType }
+        if (!supported) return HandlerProbe(MatchConfidence.NONE, emptySet())
+        return HandlerProbe(MatchConfidence.VERIFIED, setOf(Operations.IDENTIFY), identity.evidence,
+            mapOf("mimeType" to identity.mimeType, "format" to identity.title))
+    }
     override fun decode(bytes:ByteArray,targetPixels:Int,extension:String)=decodeBytes(bytes,targetPixels,extension)
 }
 
@@ -79,11 +91,33 @@ private class BuiltinImageHandler : ImageCapabilityHandler {
     override val descriptor=HandlerDescriptor("canvas.builtin","canvas","Canvas image decoders",
         listOf(FormatSupport(setOf("image/*","video/x-mng") + FlicDecoder.mimeTypes,CanvasFormats.builtInExtensions,
             magic=listOf(MagicSignature("89504e470d0a1a0a"),MagicSignature("8a4d4e470d0a1a0a"),
-                MagicSignature("474946383761"),MagicSignature("474946383961")))),
-        setOf(Operations.DECODE,Operations.THUMBNAIL),metadata=setOf("width","height","pixelFormat","colorSpace","warnings"),
+                MagicSignature("474946383761"),MagicSignature("474946383961"),MagicSignature("ffd8ff"),
+                MagicSignature("57454250",8),MagicSignature("66747970",4),MagicSignature("716f6966"),
+                MagicSignature("6661726266656c64"),MagicSignature("49492a00"),MagicSignature("4d4d002a"),
+                MagicSignature("464f524d"),MagicSignature("69636e73"),MagicSignature("59a66a95"),
+                MagicSignature("01da"),MagicSignature("3ade68b1"),MagicSignature("11af",4),MagicSignature("12af",4),
+                MagicSignature("8b5053"),MagicSignature("44445320"),MagicSignature("424d"),
+                MagicSignature("00000100"),MagicSignature("ff4fff51"),MagicSignature("0000000c4a5020200d0a870a"),
+                MagicSignature("762f3101"),MagicSignature("5031"),MagicSignature("5032"),MagicSignature("5033"),
+                MagicSignature("5034"),MagicSignature("5035"),MagicSignature("5036"),MagicSignature("5037"),
+                MagicSignature("5046"),MagicSignature("5066"),MagicSignature("4449434d",128),
+                MagicSignature("53494d504c4520203d"),MagicSignature("1b5b"),MagicSignature("0a"),
+                MagicSignature("1b50"),MagicSignature("00000064"),MagicSignature("217c"),
+                MagicSignature("2f2a2058504d"),MagicSignature("23646566696e65"),
+                MagicSignature("3c737667"),MagicSignature("3c3f786d6c"),MagicSignature("2521"),
+                MagicSignature("232152414449414e4345"),MagicSignature("ab4b5458203131bb0d0a1a0a")))),
+        setOf(Operations.IDENTIFY,Operations.DECODE,Operations.THUMBNAIL),metadata=setOf("width","height","pixelFormat","colorSpace","warnings"),
         limitations=listOf("Platform codec support varies by Android version", "32 MiB custom input; 4 MP custom animation canvas", "MNG/FLIC and legacy graphics support documented subsets only", "Image wildcard is a candidate route; render failure returns null"),
         attributes=mapOf("presentation" to "image"))
     override fun availability()=bitmapAvailability()
+
+    override fun probe(context: CapabilityProbeContext): HandlerProbe {
+        if (context.resource.source == null) return super<ImageCapabilityHandler>.probe(context)
+        val identity = ImageSignatures.identify(context.prefix(), context.resource.metadata.name,
+            context.resource.metadata.length) ?: return HandlerProbe(MatchConfidence.NONE, emptySet())
+        return HandlerProbe(MatchConfidence.VERIFIED, setOf(Operations.IDENTIFY), identity.evidence,
+            mapOf("mimeType" to identity.mimeType, "format" to identity.title))
+    }
 
     override fun decode(request:ImageDecodeRequest):Bitmap? = request.legacy.decodeLegacyCustomFormat(request.extension,request.uri,request.targetPixels,request.cachedBytes)
         ?: request.legacy.decodePlatform(request.uri,request.targetPixels,request.cachedBytes)
