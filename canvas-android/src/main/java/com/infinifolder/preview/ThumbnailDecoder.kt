@@ -38,14 +38,14 @@ import kotlin.math.roundToInt
  * - Truevision TGA (.tga, .icb, .vda, .vst) via [TgaDecoder].
  */
 class ThumbnailDecoder(
-    private val resolver: ContentResolver,
+    private val resolver: ContentResolver?,
     private val streamOpener: ((Uri) -> InputStream?)? = null
 ) {
     private class OversizedImage : Exception()
 
     private fun openStream(uri: Uri, cachedBytes: ByteArray? = null): InputStream? =
         if (cachedBytes != null) ByteArrayInputStream(cachedBytes)
-        else streamOpener?.invoke(uri) ?: try { resolver.openInputStream(uri) } catch (_: Exception) { null }
+        else streamOpener?.invoke(uri) ?: try { resolver?.openInputStream(uri) } catch (_: Exception) { null }
 
     private fun isDirectUri(uri: Uri): Boolean =
         uri.scheme == "content" ||
@@ -254,6 +254,15 @@ class ThumbnailDecoder(
 
         require(targetPx > 0)
         val ext=extensionHint?.lowercase(java.util.Locale.ROOT)?:extensionOf(uri)
+        if (ext in setOf("svg", "svgz")) {
+            val bytes = readBytesForCustomDecoder(uri, null) ?: return null
+            try { SvgPaletteCycling.decode(bytes, targetPx)?.let { return it } }
+            catch (error: Exception) {
+                if (error is java.io.InterruptedIOException) throw error
+                return decode(uri, targetPx, ext, bytes)?.let { BitmapFrame(it, warnings = listOf("SVG cycling unavailable: ${error.message}")) }
+            }
+            return decode(uri, targetPx, ext, bytes)?.let { BitmapFrame(it) }
+        }
         if(ext in setOf("fli","flc","flic","mng","png","apng","gif","webp","avif","avifs","heif","heic","heics","heifs")){
             val bytes=readBytesForCustomDecoder(uri,null)?:return decode(uri,targetPx,ext)?.let{BitmapFrame(it)}
             val frame=try{AnimatedImages.decode(bytes,targetPx,uri.toString())}catch(error:Exception){
@@ -400,7 +409,7 @@ class ThumbnailDecoder(
         val source = if (uri.scheme == "file" && !uri.path.isNullOrEmpty()) {
             ImageDecoder.createSource(java.io.File(uri.path!!))
         } else {
-            ImageDecoder.createSource(resolver, uri)
+            ImageDecoder.createSource(requireNotNull(resolver) { "Content URI needs a resolver" }, uri)
         }
         return decodeSourceWithImageDecoder(source, targetPx)
     }
@@ -478,7 +487,7 @@ class ThumbnailDecoder(
 
     companion object {
         /** Hosts include decoder changes in persisted/generated thumbnail cache signatures. */
-        const val CONTENT_REVISION = "canvas-animation-2"
+        const val CONTENT_REVISION = "canvas-animation-3"
         private const val MAX_SIDE = 40_000
         private const val MAX_PIXELS = 160_000_000L
         private const val MAX_STREAM_BYTES = 32 * 1024 * 1024

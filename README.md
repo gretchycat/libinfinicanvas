@@ -248,3 +248,7 @@ best-effort. External ICN references produce a labeled missing-art marker and
 warning; they are not fetched or invented. Recoverable malformed arguments skip
 only the affected command, preserving an explicitly partial scene. Budget and
 cancellation failures still abort. SOH/STX command prefixes are recognized.
+
+## Theme artwork and indexed SVG
+
+`CanvasStreams.decodeBytes` decodes in-memory assets through the existing image registry and frame APIs, including IFF palette cycling and [Infini SVG palette metadata](docs/svg-palette-cycling.md). It preserves intrinsic SVG artwork dimensions for sprite sheets. Decoding/animation remains in Canvas; consuming UI supplies rendering lifecycle and file selection. Supported formats retain their existing codec/subset limits.

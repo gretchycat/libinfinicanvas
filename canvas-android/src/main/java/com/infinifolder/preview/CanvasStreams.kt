@@ -45,6 +45,18 @@ class BitmapFrame @JvmOverloads constructor(val bitmap: Bitmap, private val owns
 }
 
 object CanvasStreams {
+    /** Decode an in-memory asset through the same discovery/animation path as external images.
+     * The caller owns the returned bitmap. SVG artwork retains its intrinsic canvas dimensions. */
+    @JvmStatic @JvmOverloads
+    fun decodeBytes(bytes: ByteArray, name: String, targetPixels: Int = 2048): BitmapFrame? {
+        require(bytes.size <= 8 * 1024 * 1024) { "Artwork exceeds encoded size limit" }
+        require(targetPixels in 1..4096)
+        val extension = ImageSignatures.extension(bytes) ?: name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+        if (extension in setOf("svg", "svgz")) return SvgPaletteCycling.decode(bytes, targetPixels, nativeDimensions = true, allowStatic = true)
+        val uri = Uri.Builder().scheme("infinistream").authority("artwork").appendPath(name).build()
+        return ThumbnailDecoder(null) { bytes.inputStream() }.decodeViewerFrame(uri, targetPixels, extension)
+    }
+
     val descriptor = ProcessorDescriptor("canvas.android.decode",
         listOf(PortDescriptor("encoded", setOf(DataKind.BYTES), capabilities = setOf(Capability.READ))),
         listOf(PortDescriptor("frame", setOf(DataKind.IMAGE_FRAME))), options = setOf("targetPixels"))

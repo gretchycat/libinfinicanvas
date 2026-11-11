@@ -17,6 +17,7 @@ object ImageSignatures {
     /** Compatibility helper used by animation dispatch. */
     fun extension(bytes: ByteArray): String? = identify(bytes)?.let {
         when (it.mimeType) {
+            "image/svg+xml" -> "svg"
             "image/png" -> "png"
             "image/gif" -> "gif"
             "image/webp" -> "webp"
