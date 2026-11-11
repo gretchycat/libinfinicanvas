@@ -117,7 +117,9 @@ object SvgPaletteCycling {
         // AndroidSVG ignores foreign metadata, but remove it before parsing the renderable tree.
         for (name in listOf("palette", "cycle")) {
             val foreign = document.getElementsByTagNameNS(NAMESPACE, name)
-            while (foreign.length > 0) foreign.item(0).parentNode.removeChild(foreign.item(0))
+            // Android's DOM can return a snapshot here; desktop DOM commonly returns a live list.
+            val remove = (0 until foreign.length).map { foreign.item(it) }
+            remove.forEach { it.parentNode?.removeChild(it) }
         }
         val out = ByteArrayOutputStream()
         TransformerFactory.newInstance().newTransformer().transform(DOMSource(document), StreamResult(out))
