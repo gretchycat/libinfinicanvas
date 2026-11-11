@@ -5,10 +5,15 @@ import org.junit.Test
 
 class ImageSignaturesTest {
     @Test fun contentIdentifiesAnImageWithoutRelyingOnItsName() {
-        val png = byteArrayOf(137.toByte(),80,78,71,13,10,26,10)
+        // Complete one-pixel images, rather than prefixes which intentionally fail validation.
+        val png = java.util.Base64.getDecoder().decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aB6sAAAAASUVORK5CYII=")
+        val webp = java.util.Base64.getDecoder().decode("UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA")
+        val gif = java.util.Base64.getDecoder().decode("R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7")
         assertEquals("png", ImageSignatures.extension(png))
-        assertEquals("webp", ImageSignatures.extension("RIFFxxxxWEBP".toByteArray()))
-        assertEquals("gif", ImageSignatures.extension("GIF89a".toByteArray()))
+        assertEquals("webp", ImageSignatures.extension(webp))
+        assertEquals("gif", ImageSignatures.extension(gif))
+        assertNull(ImageSignatures.extension(png.copyOf(8)))
+        assertNull(ImageSignatures.extension(gif.copyOf(6)))
     }
     @Test fun incompleteAndHeaderlessInputsDoNotGainInventedCertainty() {
         assertNull(ImageSignatures.extension("qoif".toByteArray()))

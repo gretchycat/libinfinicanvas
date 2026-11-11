@@ -13,7 +13,8 @@ class RuntimeCanvasCapabilitiesTest {
         }
         val selected=CanvasCapabilities.registry.query(Operations.DECODE,includeUnavailable=true).single {it.descriptor.id=="canvas.netpbm"}
         val probe=selected.handler.probe(CapabilityProbeContext(CapabilityResource(source.metadata,source=source),ProbeBudget(maxNanos=1_000_000_000)))
-        assertEquals(MatchConfidence.SIGNATURE,probe.confidence)
+        assertEquals(MatchConfidence.VERIFIED,probe.confidence)
+        assertEquals(setOf(Operations.IDENTIFY), probe.operations)
         assertEquals(AvailabilityState.UNAVAILABLE,selected.availability.state) // JVM has no Android bitmap runtime.
         ImageDecodeUtils.lastDecodedPixelsForTest=null
         selected.handler.service(ByteImageCapabilityHandler::class.java)!!.decode(bytes,64,"ppm")
