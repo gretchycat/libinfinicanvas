@@ -15,6 +15,8 @@ class ImageDecodeRequest internal constructor(internal val legacy: ThumbnailDeco
 interface ImageCapabilityHandler : CapabilityHandler {
     override fun describe()=descriptor.copy(attributes=descriptor.attributes+("presentation" to "image"))
     fun decode(request: ImageDecodeRequest): Bitmap?
+    /** Use this module's decoder through the common contract; absent or invalid images return null. */
+    override fun thumbnail(request: ThumbnailRequest): ThumbnailResult? = CanvasCapabilities.thumbnail(this, request)
 }
 
 /** Pure encoded-byte adapters need neither an Android resolver nor an application runtime. */
@@ -46,6 +48,37 @@ object CanvasCapabilities {
             if(image!=null)return image
         }
         return null
+    }
+
+    /** Invoke one image module to create a bounded still thumbnail from its supplied source. */
+    internal fun thumbnail(handler: ImageCapabilityHandler, request: ThumbnailRequest): ThumbnailResult? {
+        if (Operations.THUMBNAIL !in handler.describe().operations) return null
+        val source = request.resource.source ?: return null
+        request.cancellation.check()
+        val metadata = request.resource.metadata
+        val name = metadata.name ?: "image"
+        val extension = handler.extensions().asSequence()
+            .filter { name.endsWith(".$it", ignoreCase = true) }
+            .sortedByDescending(String::length)
+            .firstOrNull() ?: name.substringAfterLast('.', "").lowercase()
+        val uri = Uri.Builder().scheme("infinistream").authority("format-thumbnail").appendPath(name).build()
+        val decoder = ThumbnailDecoder(null) { source.open().asInputStream() }
+        return try {
+            val bitmap = handler.decode(ImageDecodeRequest(decoder, uri, request.targetPixels,
+                extension, null, metadata.content.mimeType, Operations.THUMBNAIL) {
+                decoder.readBytesForCustomDecoder(uri, null)
+            }) ?: return null
+            request.cancellation.check()
+            ThumbnailResult.frame(BitmapFrame(bitmap, ownsBitmap = true,
+                provenance = metadata.provenance.copy(transformations = metadata.provenance.transformations + "image.thumbnail"),
+                warnings = metadata.warnings))
+        } catch (cancel: java.io.InterruptedIOException) {
+            throw cancel
+        } catch (_: Exception) {
+            null
+        } catch (_: LinkageError) {
+            null
+        }
     }
 }
 

@@ -15,6 +15,12 @@ class RuntimeCanvasCapabilitiesTest {
         val probe=selected.handler.probe(CapabilityProbeContext(CapabilityResource(source.metadata,source=source),ProbeBudget(maxNanos=1_000_000_000)))
         assertEquals(MatchConfidence.VERIFIED,probe.confidence)
         assertEquals(setOf(Operations.IDENTIFY), probe.operations)
+        val normalized=selected.handler.normalize(CapabilityProbeContext(CapabilityResource(source.metadata,source=source),
+            ProbeBudget(maxNanos=1_000_000_000)))!!
+        assertEquals("canvas.netpbm",normalized.handlerId)
+        assertEquals("image/x-portable-pixmap",normalized.mimeType)
+        assertTrue(selected.handler.extensions().contains("ppm"))
+        assertTrue(selected.handler.supportsThumbnail())
         assertEquals(AvailabilityState.UNAVAILABLE,selected.availability.state) // JVM has no Android bitmap runtime.
         ImageDecodeUtils.lastDecodedPixelsForTest=null
         selected.handler.service(ByteImageCapabilityHandler::class.java)!!.decode(bytes,64,"ppm")

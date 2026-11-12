@@ -141,7 +141,7 @@ class ThumbnailDecoder(
         null
     }
 
-    private fun readBytesForCustomDecoder(uri: Uri, cachedBytes: ByteArray?): ByteArray? =
+    internal fun readBytesForCustomDecoder(uri: Uri, cachedBytes: ByteArray?): ByteArray? =
         cachedBytes ?: readStreamBytes(uri)
 
     private fun ripBytes(uri:Uri,cached:ByteArray?):ByteArray? {
