@@ -252,3 +252,5 @@ cancellation failures still abort. SOH/STX command prefixes are recognized.
 ## Theme artwork and indexed SVG
 
 `CanvasStreams.decodeBytes` decodes in-memory assets through the existing image registry and frame APIs, including IFF palette cycling and [Infini SVG palette metadata](docs/svg-palette-cycling.md). It preserves intrinsic SVG artwork dimensions for sprite sheets. Decoding/animation remains in Canvas; consuming UI supplies rendering lifecycle and file selection. Supported formats retain their existing codec/subset limits.
+
+Flat indexed SVG paints now compile to a raster palette animation once per decode, avoiding per-frame CSS/path rendering. Static color sampling can use the animate=false decodeBytes overload. Mixed-paint edge approximation, animated-gradient fallback and frame pacing are documented in the [SVG guide](docs/svg-palette-cycling.md).

@@ -48,13 +48,19 @@ object CanvasStreams {
     /** Decode an in-memory asset through the same discovery/animation path as external images.
      * The caller owns the returned bitmap. SVG artwork retains its intrinsic canvas dimensions. */
     @JvmStatic @JvmOverloads
-    fun decodeBytes(bytes: ByteArray, name: String, targetPixels: Int = 2048): BitmapFrame? {
+    fun decodeBytes(bytes: ByteArray, name: String, targetPixels: Int = 2048): BitmapFrame? = decodeBytes(bytes, name, targetPixels, true)
+
+    /** A palette/thumbnail consumer can skip constructing playback state. Existing overloads retain their ABI. */
+    @JvmStatic
+    fun decodeBytes(bytes: ByteArray, name: String, targetPixels: Int, animate: Boolean): BitmapFrame? {
         require(bytes.size <= 8 * 1024 * 1024) { "Artwork exceeds encoded size limit" }
         require(targetPixels in 1..4096)
         val extension = ImageSignatures.extension(bytes) ?: name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
-        if (extension in setOf("svg", "svgz")) return SvgPaletteCycling.decode(bytes, targetPixels, nativeDimensions = true, allowStatic = true)
+        if (extension in setOf("svg", "svgz")) return SvgPaletteCycling.decode(bytes, targetPixels, nativeDimensions = true, allowStatic = true, animate = animate)
         val uri = Uri.Builder().scheme("infinistream").authority("artwork").appendPath(name).build()
-        return ThumbnailDecoder(null) { bytes.inputStream() }.decodeViewerFrame(uri, targetPixels, extension)
+        val decoder = ThumbnailDecoder(null) { bytes.inputStream() }
+        return if (animate) decoder.decodeViewerFrame(uri, targetPixels, extension)
+            else decoder.decodeImage(uri, targetPixels, extension, null)?.let { BitmapFrame(it) }
     }
 
     val descriptor = ProcessorDescriptor("canvas.android.decode",
