@@ -2,8 +2,13 @@ package com.infinifolder.preview
 
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.io.File
+import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.util.zip.DeflaterOutputStream
 
 class ImageDecodersFixtureTest {
 
@@ -79,6 +84,41 @@ class ImageDecodersFixtureTest {
         val dir = resolveImagesDir()
         assertTrue(Jpeg2000Decoder.isJpeg2000(File(dir, "icon.jp2").readBytes()))
         assertTrue(Jpeg2000Decoder.isJpeg2000(File(dir, "icon.j2k").readBytes()))
+    }
+
+    @Test
+    fun xcfZlibCompressedTilesDecodeInTheImageViewerPipeline() {
+        val source = File(resolveImagesDir(), "icon.xcf").readBytes()
+        // XCF compression was added in v004, which also adds the precision word.
+        // Upgrade this older fixture before changing its compression property.
+        val bytes = source.copyOfRange(0, 26) + ByteArray(4) + source.copyOfRange(26, source.size)
+        "v004".forEachIndexed { index, value -> bytes[9 + index] = value.code.toByte() }
+        for (oldOffset in listOf(43, 108, 128, 144)) {
+            val shiftedOffset = oldOffset + 4
+            val pointer = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN).getInt(shiftedOffset)
+            ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN).putInt(shiftedOffset, pointer + 4)
+        }
+        val compressionProperty = (0..bytes.size - 9).first { at ->
+            bytes[at] == 0.toByte() && bytes[at + 1] == 0.toByte() &&
+                bytes[at + 2] == 0.toByte() && bytes[at + 3] == 17.toByte() &&
+                bytes[at + 4] == 0.toByte() && bytes[at + 5] == 0.toByte() &&
+                bytes[at + 6] == 0.toByte() && bytes[at + 7] == 1.toByte()
+        }
+        val tileOffset = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN).getInt(148)
+        assertEquals(0, bytes[compressionProperty + 8].toInt())
+        assertEquals(156, tileOffset)
+
+        val compressedTile = ByteArrayOutputStream().also { output ->
+            DeflaterOutputStream(output).use { it.write(bytes, tileOffset, bytes.size - tileOffset) }
+        }.toByteArray()
+        val zlibXcf = bytes.copyOfRange(0, tileOffset) + compressedTile
+        zlibXcf[compressionProperty + 8] = 2
+
+        ImageDecodeUtils.lastDecodedPixelsForTest = null
+        LayeredImageDecoder.decode(zlibXcf, 256, "xcf")
+        assertNotNull(ImageDecodeUtils.lastDecodedPixelsForTest)
+        assertEquals(64, ImageDecodeUtils.lastDecodedPixelsForTest!!.width)
+        assertEquals(64, ImageDecodeUtils.lastDecodedPixelsForTest!!.height)
     }
 
     @Test

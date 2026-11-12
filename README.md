@@ -164,10 +164,12 @@ Android presentation and live provider acceptance remain separate.
 
 Custom raster decoders reject unimplemented compression and missing mandatory
 pixel data instead of publishing zero-filled successful frames. This includes
-EXR RLE, unknown TIFF/XCF compression, incomplete scanlines/tiles/channels and
-strict PackBits output. A genuinely blank valid image is allowed; rejection is
-based on structure and decoding, not pixel color. Known working subsets and real
-embedded previews remain; this does not add full PostScript/layer interpretation.
+EXR RLE, TIFF/XCF compression outside implemented modes, incomplete
+scanlines/tiles/channels and strict PackBits output. XCF supports uncompressed,
+RLE and zlib tiles in its documented 8-bit layer subset. A genuinely blank valid
+image is allowed; rejection is based on structure and decoding, not pixel color.
+Known working subsets and real embedded previews remain; this does not add full
+PostScript/layer interpretation.
 
 ANSI cells use a real CP437 bitmap table (8x8 glyphs doubled vertically), retaining
 8x16 geometry and color/block handling. Public domain font8x8 sources, pinned

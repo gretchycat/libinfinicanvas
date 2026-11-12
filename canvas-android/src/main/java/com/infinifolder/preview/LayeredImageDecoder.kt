@@ -361,7 +361,7 @@ object LayeredImageDecoder {
             if (ptr in 1 until bytes.size) layerOffsets.add(ptr)
         }
 
-        if (compression !in 0..1 || layerOffsets.isEmpty()) return null
+        if (compression !in 0..2 || layerOffsets.isEmpty()) return null
         val canvas = IntArray(width * height)
         // Composite layers bottom-to-top (XCF lists top-most layer first)
         for (layerOffset in layerOffsets.asReversed()) {
@@ -435,12 +435,14 @@ object LayeredImageDecoder {
                 val tilePixels = tileW * tileH
                 val tileBuf = ByteArray(tilePixels * bpp)
 
-                if (compression == 0) {
-                    val avail = (bytes.size - tileOffset).coerceAtMost(tileBuf.size)
-                    if (avail != tileBuf.size) return false
-                    if (avail > 0) System.arraycopy(bytes, tileOffset, tileBuf, 0, avail)
-                } else if (compression == 1) {
-                    if (!decodeXcfRleTile(bytes, tileOffset, tilePixels, bpp, tileBuf)) return false
+                when (compression) {
+                    0 -> {
+                        val avail = (bytes.size - tileOffset).coerceAtMost(tileBuf.size)
+                        if (avail != tileBuf.size) return false
+                        if (avail > 0) System.arraycopy(bytes, tileOffset, tileBuf, 0, avail)
+                    }
+                    1 -> if (!decodeXcfRleTile(bytes, tileOffset, tilePixels, bpp, tileBuf)) return false
+                    2 -> if (!decodeXcfZlibTile(bytes, tileOffset, tileBuf)) return false
                 }
 
                 for (py in 0 until tileH) {
@@ -521,6 +523,27 @@ object LayeredImageDecoder {
             }
         }
         return true
+    }
+
+    /** XCF zlib compression stores each tile as an independent bounded pixel stream. */
+    private fun decodeXcfZlibTile(bytes: ByteArray, startPos: Int, output: ByteArray): Boolean {
+        if (startPos !in bytes.indices) return false
+        return try {
+            java.util.zip.InflaterInputStream(
+                ByteArrayInputStream(bytes, startPos, bytes.size - startPos)
+            ).use { input ->
+                var offset = 0
+                while (offset < output.size) {
+                    val count = input.read(output, offset, output.size - offset)
+                    if (count <= 0) return false
+                    offset += count
+                }
+                // Reject truncated streams and streams that expand beyond the known tile size.
+                input.read() == -1
+            }
+        } catch (_: Exception) {
+            false
+        }
     }
 
     fun decodeAseprite(bytes: ByteArray, targetPx: Int): Bitmap? {
