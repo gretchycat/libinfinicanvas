@@ -256,3 +256,9 @@ cancellation failures still abort. SOH/STX command prefixes are recognized.
 The experimental SVG palette parser, vector animation and raster palette animation have been removed at the owner's request. Source SVG files and the separate SVG-to-IFF authoring converter are preserved. Use indexed IFF for color-cycling theme artwork. See [SVG support](docs/svg-palette-cycling.md).
 
 The `animate=false` decodeBytes overload returns the exact initial frame without playback state. Other image animation formats keep their existing decoders and lifecycle contracts.
+
+## Authoring and compressed thumbnails
+
+ORA/KRA ZIP mimetype entries identify their image format instead of a generic archive. Thumbnail requests stream the first supported preview/merged PNG without materializing the project: 32 MiB encoded input, 128 MiB expanded scan, 4,096 entries and a 16 MiB preview limit. Bitmap decoding samples to the thumbnail size. Full image viewing retains its existing merged-image route and input limits.
+
+SVGZ identity reads only a bounded decompressed XML prefix and recognizes large SVG documents without requiring their complete expansion. SVG remains static. Explicit application/postscript and application/x-krita thumbnail MIME aliases keep content providers' MIME values on the image route. EPS support remains the existing EPSI, binary preview and ImageMagick raster subsets; this does not introduce a general PostScript interpreter.

@@ -27,6 +27,70 @@ import kotlin.math.max
  */
 object LayeredImageDecoder {
 
+    /** Thumbnail extraction reads one bounded preview, rather than materializing a project ZIP. */
+    fun decodeThumbnail(input: InputStream, targetPx: Int): Bitmap? {
+        require(targetPx > 0)
+        var encoded = 0L
+        val bounded = object : java.io.FilterInputStream(input) {
+            override fun read(): Int {
+                val value = super.read()
+                if (value >= 0 && ++encoded > 32L * 1024 * 1024) throw java.io.IOException("Project thumbnail input limit")
+                return value
+            }
+            override fun read(b: ByteArray, off: Int, len: Int): Int {
+                if (Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException()
+                val count = `in`.read(b, off, len)
+                if (count > 0) encoded += count
+                if (encoded > 32L * 1024 * 1024)
+                    throw java.io.IOException("Project thumbnail input limit")
+                return count
+            }
+        }
+        try {
+            ZipInputStream(bounded).use { zip ->
+                var expanded = 0L
+                val buffer = ByteArray(8192)
+                repeat(4096) {
+                    val entry = zip.nextEntry ?: return null
+                    val name = entry.name.lowercase(java.util.Locale.ROOT)
+                    val image = name in setOf("mergedimage.png", "preview.png", "thumbnails/thumbnail.png")
+                    val output = if (image) java.io.ByteArrayOutputStream() else null
+                    var oversized = false
+                    while (true) {
+                        if (Thread.currentThread().isInterrupted) throw java.io.InterruptedIOException()
+                        val count = zip.read(buffer)
+                        if (count < 0) break
+                        if (count == 0) throw java.io.IOException("Project ZIP made no progress")
+                        expanded += count
+                        if (expanded > 128L * 1024 * 1024) return null
+                        if (output != null && !oversized) {
+                            if (output.size() + count > 16 * 1024 * 1024) oversized = true
+                            else output.write(buffer, 0, count)
+                        }
+                    }
+                    if (output != null && !oversized) {
+                        val bytes = output.toByteArray()
+                        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+                        if (isValidDimensions(options.outWidth, options.outHeight)) {
+                            options.inSampleSize = ImageDecodeUtils.sampleSize(options.outWidth, options.outHeight, targetPx, targetPx)
+                            options.inJustDecodeBounds = false
+                            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)?.let { bitmap ->
+                                val scale = minOf(1f, targetPx.toFloat() / max(bitmap.width, bitmap.height))
+                                if (scale == 1f) return bitmap
+                                return Bitmap.createScaledBitmap(bitmap, (bitmap.width * scale).toInt().coerceAtLeast(1),
+                                    (bitmap.height * scale).toInt().coerceAtLeast(1), true).also { if (it !== bitmap) bitmap.recycle() }
+                            }
+                        }
+                        PureJavaPngFallback.decode(bytes, targetPx)?.let { return it }
+                    }
+                }
+            }
+        } catch (cancel: java.io.InterruptedIOException) { throw cancel }
+        catch (_: Exception) { return null }
+        return null
+    }
+
     val extensions: Set<String> = setOf("ora", "kra", "psd", "psb", "xcf", "ase", "aseprite")
 
     fun decode(input: InputStream, targetPx: Int, extHint: String = ""): Bitmap? =

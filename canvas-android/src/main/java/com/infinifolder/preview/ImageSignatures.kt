@@ -18,6 +18,8 @@ object ImageSignatures {
     fun extension(bytes: ByteArray): String? = identify(bytes)?.let {
         when (it.mimeType) {
             "image/svg+xml" -> "svg"
+            "image/openraster" -> "ora"
+            "image/x-krita", "application/x-krita" -> "kra"
             "image/png" -> "png"
             "image/gif" -> "gif"
             "image/webp" -> "webp"
@@ -80,6 +82,11 @@ object ImageSignatures {
         fun result(mime: String, title: String, evidence: String = "Validated image header") = ImageIdentity(mime, title, evidence)
 
         // Strong signatures with basic structural checks.
+        if (starts(bytes, 0x1f, 0x8b) && validSvgz(bytes))
+            return result("image/svg+xml", "SVG Vector Image", "Compressed SVG root parsed from a bounded prefix")
+        if (starts(bytes, 0x50, 0x4b, 3, 4)) layeredZipMime(bytes)?.let {
+            return result(it, "Layered Image", "Authoring ZIP mimetype entry validated")
+        }
         if (starts(bytes, 137, 80, 78, 71, 13, 10, 26, 10) && bytes.size >= 33 &&
             be32(bytes, 8) == 13L && ascii(bytes, 12, 4) == "IHDR" &&
             be32(bytes, 16) in 1L..40000L && be32(bytes, 20) in 1L..40000L &&
@@ -278,19 +285,42 @@ object ImageSignatures {
 
     private fun validSvg(bytes: ByteArray): Boolean = textIdentity(bytes)?.mimeType == "image/svg+xml"
 
+    private fun layeredZipMime(bytes: ByteArray): String? = try {
+        java.util.zip.ZipInputStream(bytes.inputStream()).use { zip ->
+            val entry = zip.nextEntry ?: return null
+            if (entry.name != "mimetype" || entry.isDirectory) return null
+            val output = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(65)
+            while (output.size() < 65) {
+                val count = zip.read(buffer, 0, 65 - output.size())
+                if (count < 0) break
+                if (count == 0) return null
+                output.write(buffer, 0, count)
+            }
+            val value = output.toByteArray()
+            if (value.size > 64) return null
+            when (String(value, StandardCharsets.US_ASCII).trim()) {
+                "image/openraster" -> "image/openraster"
+                "application/x-krita", "image/x-krita" -> "image/x-krita"
+                else -> null
+            }
+        }
+    } catch (_: Exception) { null }
+
     private fun validSvgz(bytes: ByteArray): Boolean {
         if (bytes.size < 4 || u8(bytes, 0) != 0x1f || u8(bytes, 1) != 0x8b) return false
         return try {
             java.util.zip.GZIPInputStream(bytes.inputStream()).use { input ->
                 val out = java.io.ByteArrayOutputStream()
                 val buffer = ByteArray(4096)
-                while (out.size() <= 65536) {
-                    val n = input.read(buffer, 0, minOf(buffer.size, 65537 - out.size()))
-                    if (n < 0) break
-                    if (n == 0) return false
+                while (out.size() < 65536) {
+                    val n = input.read(buffer, 0, minOf(buffer.size, 65536 - out.size()))
+                    if (n <= 0) break
                     out.write(buffer, 0, n)
+                    // Identity only needs the root, not the entire SVG or gzip trailer.
+                    if (validSvg(out.toByteArray())) return true
                 }
-                out.size() <= 65536 && textIdentity(out.toByteArray())?.mimeType == "image/svg+xml"
+                false
             }
         } catch (_: Exception) { false }
     }

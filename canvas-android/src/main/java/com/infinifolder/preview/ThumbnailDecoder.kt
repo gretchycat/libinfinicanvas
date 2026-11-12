@@ -159,6 +159,9 @@ class ThumbnailDecoder(
         }
     }
 
+    internal fun decodeLayeredThumbnail(uri: Uri, targetPx: Int): Bitmap? =
+        openStream(uri)?.use { LayeredImageDecoder.decodeThumbnail(it, targetPx) }
+
     internal fun decodeLegacyCustomFormat(ext: String, uri: Uri, targetPx: Int, cachedBytes: ByteArray?): Bitmap? {
         return when (ext) {
             "fli", "flc", "flic" -> readBytesForCustomDecoder(uri,cachedBytes)?.let{FlicDecoder.decode(it,targetPx,false)?.bitmap}
@@ -192,7 +195,7 @@ class ThumbnailDecoder(
     }
 
     private fun decodeRegisteredFormat(ext: String, uri: Uri, targetPx: Int, cachedBytes: ByteArray?,mimeType:String?=null,operation:String=io.github.gretchycat.infinistream.Operations.THUMBNAIL): Bitmap? =
-        CanvasCapabilities.decode(ImageDecodeRequest(this, uri, targetPx, ext, cachedBytes,mimeType) { readBytesForCustomDecoder(uri, cachedBytes) },operation=operation)
+        CanvasCapabilities.decode(ImageDecodeRequest(this, uri, targetPx, ext, cachedBytes,mimeType,operation) { readBytesForCustomDecoder(uri, cachedBytes) },operation=operation)
 
     /** Returns a bitmap whose longer side is about [targetPx], or null if the image cannot be previewed. */
     fun decode(uri: Uri, targetPx: Int): Bitmap? = decode(uri,targetPx,null)
@@ -275,7 +278,7 @@ class ThumbnailDecoder(
             return BitmapFrame(image.bitmap,provenance=io.github.gretchycat.infinistream.Provenance(
                 source=uri.toString(),transformations=listOf("image.decode.ripscrip")),warnings=image.warnings)
         }
-        val bitmap = decode(uri, targetPx,extensionHint) ?: openStream(uri)?.use { bounds ->
+        val bitmap = decodeImage(uri, targetPx,extensionHint,mimeTypeHint) ?: openStream(uri)?.use { bounds ->
             val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeStream(bounds, null, options)
             options.inSampleSize = ImageDecodeUtils.sampleSize(options.outWidth, options.outHeight, targetPx, targetPx)
@@ -485,7 +488,7 @@ class ThumbnailDecoder(
 
     companion object {
         /** Hosts include decoder changes in persisted/generated thumbnail cache signatures. */
-        const val CONTENT_REVISION = "canvas-animation-4-static-svg"
+        const val CONTENT_REVISION = "canvas-thumbnail-5-authoring"
         private const val MAX_SIDE = 40_000
         private const val MAX_PIXELS = 160_000_000L
         private const val MAX_STREAM_BYTES = 32 * 1024 * 1024
