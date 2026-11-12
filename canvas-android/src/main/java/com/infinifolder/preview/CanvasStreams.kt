@@ -50,7 +50,7 @@ object CanvasStreams {
     @JvmStatic @JvmOverloads
     fun decodeBytes(bytes: ByteArray, name: String, targetPixels: Int = 2048): BitmapFrame? = decodeBytes(bytes, name, targetPixels, true)
 
-    /** A palette/thumbnail consumer can skip constructing playback state. Existing overloads retain their ABI. */
+    /** A palette/thumbnail consumer can request first-frame pixels without playback state. Existing overloads retain their ABI. */
     @JvmStatic
     fun decodeBytes(bytes: ByteArray, name: String, targetPixels: Int, animate: Boolean): BitmapFrame? {
         require(bytes.size <= 8 * 1024 * 1024) { "Artwork exceeds encoded size limit" }
@@ -59,8 +59,10 @@ object CanvasStreams {
         if (extension in setOf("svg", "svgz")) return SvgPaletteCycling.decode(bytes, targetPixels, nativeDimensions = true, allowStatic = true, animate = animate)
         val uri = Uri.Builder().scheme("infinistream").authority("artwork").appendPath(name).build()
         val decoder = ThumbnailDecoder(null) { bytes.inputStream() }
-        return if (animate) decoder.decodeViewerFrame(uri, targetPixels, extension)
-            else decoder.decodeImage(uri, targetPixels, extension, null)?.let { BitmapFrame(it) }
+        val frame = decoder.decodeViewerFrame(uri, targetPixels, extension) ?: return null
+        // Some formats initialize palette/frame state to produce their exact first frame.
+        // Keep that decoder path, but return no playback state to still-only consumers.
+        return if (animate) frame else BitmapFrame(frame.bitmap, provenance = frame.metadata.provenance, warnings = frame.metadata.warnings)
     }
 
     val descriptor = ProcessorDescriptor("canvas.android.decode",
