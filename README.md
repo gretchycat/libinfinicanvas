@@ -249,8 +249,10 @@ warning; they are not fetched or invented. Recoverable malformed arguments skip
 only the affected command, preserving an explicitly partial scene. Budget and
 cancellation failures still abort. SOH/STX command prefixes are recognized.
 
-## Theme artwork and indexed SVG
+## Theme artwork and static SVG
 
-`CanvasStreams.decodeBytes` decodes in-memory assets through the existing image registry and frame APIs, including IFF palette cycling and [Infini SVG palette metadata](docs/svg-palette-cycling.md). It preserves intrinsic SVG artwork dimensions for sprite sheets. Decoding/animation remains in Canvas; consuming UI supplies rendering lifecycle and file selection. Supported formats retain their existing codec/subset limits.
+`CanvasStreams.decodeBytes` decodes in-memory assets through the existing image registry and frame APIs, including IFF palette cycling. SVG/SVGZ render as still images through AndroidSVG; custom palette/cycle metadata is ignored. Intrinsic SVG document dimensions are preserved for sprite sheets, with proportional downsampling to the requested limit. Ordinary explicit fills, strokes and gradients remain supported within AndroidSVG's SVG subset.
 
-Flat indexed SVG paints now compile to a raster palette animation once per decode, avoiding per-frame CSS/path rendering. Static color sampling can use the animate=false decodeBytes overload. Mixed-paint edge approximation, animated-gradient fallback and frame pacing are documented in the [SVG guide](docs/svg-palette-cycling.md).
+The experimental SVG palette parser, vector animation and raster palette animation have been removed at the owner's request. Source SVG files and the separate SVG-to-IFF authoring converter are preserved. Use indexed IFF for color-cycling theme artwork. See [SVG support](docs/svg-palette-cycling.md).
+
+The `animate=false` decodeBytes overload returns the exact initial frame without playback state. Other image animation formats keep their existing decoders and lifecycle contracts.

@@ -56,7 +56,7 @@ object CanvasStreams {
         require(bytes.size <= 8 * 1024 * 1024) { "Artwork exceeds encoded size limit" }
         require(targetPixels in 1..4096)
         val extension = ImageSignatures.extension(bytes) ?: name.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
-        if (extension in setOf("svg", "svgz")) return SvgPaletteCycling.decode(bytes, targetPixels, nativeDimensions = true, allowStatic = true, animate = animate)
+        if (extension in setOf("svg", "svgz")) return ThumbnailDecoder(null).decodeSvgBytes(bytes, targetPixels)?.let { BitmapFrame(it) }
         val uri = Uri.Builder().scheme("infinistream").authority("artwork").appendPath(name).build()
         val decoder = ThumbnailDecoder(null) { bytes.inputStream() }
         val frame = decoder.decodeViewerFrame(uri, targetPixels, extension) ?: return null

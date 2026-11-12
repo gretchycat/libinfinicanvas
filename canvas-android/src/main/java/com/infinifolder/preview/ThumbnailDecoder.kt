@@ -254,15 +254,6 @@ class ThumbnailDecoder(
 
         require(targetPx > 0)
         val ext=extensionHint?.lowercase(java.util.Locale.ROOT)?:extensionOf(uri)
-        if (ext in setOf("svg", "svgz")) {
-            val bytes = readBytesForCustomDecoder(uri, null) ?: return null
-            try { SvgPaletteCycling.decode(bytes, targetPx)?.let { return it } }
-            catch (error: Exception) {
-                if (error is java.io.InterruptedIOException) throw error
-                return decode(uri, targetPx, ext, bytes)?.let { BitmapFrame(it, warnings = listOf("SVG cycling unavailable: ${error.message}")) }
-            }
-            return decode(uri, targetPx, ext, bytes)?.let { BitmapFrame(it) }
-        }
         if(ext in setOf("fli","flc","flic","mng","png","apng","gif","webp","avif","avifs","heif","heic","heics","heifs")){
             val bytes=readBytesForCustomDecoder(uri,null)?:return decode(uri,targetPx,ext)?.let{BitmapFrame(it)}
             val frame=try{AnimatedImages.decode(bytes,targetPx,uri.toString())}catch(error:Exception){
@@ -319,7 +310,11 @@ class ThumbnailDecoder(
         }
     }
 
-    private fun decodeSvg(uri: Uri, targetPx: Int, cachedBytes: ByteArray? = null): Bitmap? {
+    /** Static SVG artwork keeps its document canvas; custom cycling metadata is ignored. */
+    internal fun decodeSvgBytes(bytes: ByteArray, targetPx: Int): Bitmap? =
+        decodeSvg(Uri.parse("infinistream://artwork/image.svg"), targetPx, bytes, nativeDimensions = true)
+
+    private fun decodeSvg(uri: Uri, targetPx: Int, cachedBytes: ByteArray? = null, nativeDimensions: Boolean = false): Bitmap? {
         return try {
             openStream(uri, cachedBytes)?.use { rawStream ->
                 val bis = BufferedInputStream(rawStream)
@@ -335,11 +330,13 @@ class ThumbnailDecoder(
                 val rawDocHeight = svg.documentHeight
 
                 val naturalWidth = when {
+                    nativeDimensions && rawDocWidth > 0f -> rawDocWidth
                     rawViewBox != null && rawViewBox.width() > 0f -> rawViewBox.width()
                     rawDocWidth > 0f -> rawDocWidth
                     else -> targetPx.toFloat()
                 }
                 val naturalHeight = when {
+                    nativeDimensions && rawDocHeight > 0f -> rawDocHeight
                     rawViewBox != null && rawViewBox.height() > 0f -> rawViewBox.height()
                     rawDocHeight > 0f -> rawDocHeight
                     else -> targetPx.toFloat()
@@ -353,7 +350,8 @@ class ThumbnailDecoder(
                 svg.setDocumentHeight("100%")
 
                 val maxDim = max(naturalWidth, naturalHeight)
-                val scale = if (maxDim > 0f) targetPx.toFloat() / maxDim else 1f
+                val scale = (if (maxDim > 0f) targetPx.toFloat() / maxDim else 1f)
+                    .let { if (nativeDimensions) minOf(1f, it) else it }
                 val outW = (naturalWidth * scale).roundToInt().coerceAtLeast(1)
                 val outH = (naturalHeight * scale).roundToInt().coerceAtLeast(1)
 
@@ -487,7 +485,7 @@ class ThumbnailDecoder(
 
     companion object {
         /** Hosts include decoder changes in persisted/generated thumbnail cache signatures. */
-        const val CONTENT_REVISION = "canvas-animation-3"
+        const val CONTENT_REVISION = "canvas-animation-4-static-svg"
         private const val MAX_SIDE = 40_000
         private const val MAX_PIXELS = 160_000_000L
         private const val MAX_STREAM_BYTES = 32 * 1024 * 1024
