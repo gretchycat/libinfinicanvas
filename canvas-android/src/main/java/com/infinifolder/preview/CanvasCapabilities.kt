@@ -141,7 +141,7 @@ private class BuiltinImageHandler : ImageCapabilityHandler {
                 MagicSignature("3c737667"),MagicSignature("3c3f786d6c"),MagicSignature("2521"),
                 MagicSignature("232152414449414e4345"),MagicSignature("ab4b5458203131bb0d0a1a0a"),
                 MagicSignature("504b0304"),MagicSignature("1f8b"))),
-            FormatSupport(setOf("application/postscript"),setOf("ps","eps","ept")),
+            FormatSupport(setOf("application/postscript","image/x-eps"),setOf("ps","eps","ept")),
             FormatSupport(setOf("application/x-krita"),setOf("kra"))),
         setOf(Operations.IDENTIFY,Operations.DECODE,Operations.THUMBNAIL),metadata=setOf("width","height","pixelFormat","colorSpace","warnings"),
         limitations=listOf("Platform codec support varies by Android version", "32 MiB custom input; 4 MP custom animation canvas", "MNG/FLIC and legacy graphics support documented subsets only", "Image wildcard is a candidate route; render failure returns null"),

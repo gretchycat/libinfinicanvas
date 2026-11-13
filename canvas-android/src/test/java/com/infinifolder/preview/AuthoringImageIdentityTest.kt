@@ -34,7 +34,7 @@ class AuthoringImageIdentityTest {
     }
     @Test fun postscriptAndKritaApplicationAliasesAdvertiseThumbnailRoutes() {
         val formats = BuiltinCanvasCapabilityProvider().handlers().flatMap { it.describe().formats }
-        assertTrue(formats.any { "application/postscript" in it.mimeTypes && "eps" in it.extensions })
+        assertTrue(formats.any { "application/postscript" in it.mimeTypes && "image/x-eps" in it.mimeTypes && "eps" in it.extensions })
         assertTrue(formats.any { "application/x-krita" in it.mimeTypes && "kra" in it.extensions })
     }
     @Test fun projectThumbnailCancellationRemainsObservable() {
